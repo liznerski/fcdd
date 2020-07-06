@@ -2,7 +2,8 @@
 Here we provide the implementation of *Fully Convolutional Data Description* (FCDD), an explainable approach to deep one-class classification. The implementation is based on PyTorch. 
 
 # Citation
-A preprint of our paper is available at: https://arxiv.org/abs/2007.01760
+A preprint of our paper is available at: https://arxiv.org/abs/2007.01760 
+
 If you use our work, please also cite the current preprint:
 ```
 @misc{liznerski2020explainable,
