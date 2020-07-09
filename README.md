@@ -17,7 +17,7 @@ If you use our work, please also cite the current preprint:
 ```
 
 ## Version
-Please note that the current code is a preliminary version! \
+**Please note that the current code is a preliminary version!** \
 For instance, the parameters for running a training are suboptimally structured and poorly documented. \
 We will provide an updated version with thorough documentation and cleaned up code in the near future. \
 Stay tuned!
