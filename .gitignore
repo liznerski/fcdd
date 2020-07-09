@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
+*.synctex.gz
+*.bbl
+*.blg
+
+# setup
+*.egg-info
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# PyBuilder
+target/
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+
+# Pycharm
+.idea
+
+# CMake
+cmake-build-debug/
+
+# data
+data
+venv
+dist
+
