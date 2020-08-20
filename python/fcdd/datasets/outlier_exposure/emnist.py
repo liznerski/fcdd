@@ -2,23 +2,18 @@ import os.path as pt
 
 import numpy as np
 import torchvision.transforms as transforms
+import torch
 from torch.utils.data import DataLoader
 from torchvision.datasets import EMNIST
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
 class MyEMNIST(EMNIST):
+    """ Reimplements get_item to transform tensor input to pil image before applying transformation. """
     def __getitem__(self, index):
-        """Override the original method of the EMNIST class.
-        Args:
-            index (int): Index
-
-        Returns:
-            tuple: (image, target, semi_target, index)
-        """
         img, target = self.data[index], self.targets[index]
 
         # doing this so that it is consistent with all other datasets
@@ -35,7 +30,20 @@ class MyEMNIST(EMNIST):
 
 
 class OEEMNIST(EMNIST):
-    def __init__(self, size, root=None, split='letters', limit_var=20):  # split = Train
+    def __init__(self, size: torch.Size, root: str = None, split='letters', limit_var=20):  # split = Train
+        """
+        Outlier Exposure dataset for EMNIST.
+        :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
+            number of samples available in EMNIST, dataset will be enlarged by repetitions to fit n.
+            This is important as exactly n images are extracted per iteration of the data_loader.
+            For online supervision n should be set to 1 because only one sample is extracted at a time.
+        :param root: root directory where data is found or is to be downloaded to.
+        :param split: The dataset has 6 different splits: ``byclass``, ``bymerge``,
+            ``balanced``, ``letters``, ``digits`` and ``mnist``. This argument specifies
+            which one to use.
+        :param limit_var: limits the number of different samples, i.e. randomly chooses limit_var many samples
+            from all available ones to be the training data.
+        """
         assert len(size) == 3 and size[1] == size[2]
         root = pt.join(root, 'emnist', )
         transform = transforms.Compose([

@@ -1,19 +1,36 @@
-import os.path as pt
-
 import numpy as np
+import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.mvtec_base import MvTec
 from fcdd.datasets.preprocessing import MultiCompose, get_target_label_idx
+from fcdd.util.logging import Logger
 from torch.utils.data import DataLoader
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
 class OEMvTec(MvTec):
-    def __init__(self, size, clsses, root=None, limit_var=100000000, limit_per_anomaly=True,
-                 download=True, logger=None, gt=False, remove_nominal=True):
+    def __init__(self, size: torch.Size, clsses: [int], root: str = None, limit_var: int = np.infty,
+                 limit_per_anomaly=True, download=True, logger: Logger = None, gt=False, remove_nominal=True):
+        """
+        Outlier Exposure dataset for MVTec-AD. Considers only a part of the classes.
+        :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
+            number of samples available in MVTec-AD, dataset will be enlarged by repetitions to fit n.
+            This is important as exactly n images are extracted per iteration of the data_loader.
+            For online supervision n should be set to 1 because only one sample is extracted at a time.
+        :param clsses: the classes that are to be considered, i.e. all other classes are dismissed.
+        :param root: root directory where data is found or is to be downloaded to.
+        :param limit_var: limits the number of different samples, i.e. randomly chooses limit_var many samples
+            from all available ones to be the training data.
+        :param limit_per_anomaly: whether limit_var limits the number of different samples per type
+            of defection or overall.
+        :param download: whether to download the data if it is not found in root.
+        :param logger: logger.
+        :param gt: whether ground-truth maps are to be included in the data.
+        :param remove_nominal: whether nominal samples are to be excluded from the data.
+        """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
         self.root = root
@@ -24,7 +41,7 @@ class OEMvTec(MvTec):
         super().__init__(root, 'test', download=download, shape=size[1:], logger=logger)
 
         self.img_gt_transform = MultiCompose([
-            transforms.Resize(size[2]),
+            transforms.Resize((size[2], size[2])),
             transforms.ToTensor()
         ])
         self.picks = get_target_label_idx(self.targets, self.clsses)

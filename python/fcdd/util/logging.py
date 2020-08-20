@@ -3,8 +3,8 @@ import os
 import os.path as pt
 import re
 import sys
-import tarfile
 import time
+import tarfile
 from collections import defaultdict
 from datetime import datetime
 
@@ -14,15 +14,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchvision.utils as vutils
+from torch import Tensor
 from fcdd.util import DefaultList, CircleList, NumpyEncoder
 from fcdd.util.metrics import mean_roc
 from matplotlib import cm
-from matplotlib.ticker import MaxNLocator
+from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
 
 MARKERS = ('.', 'x', '*', '+', 's', 'v', 'D', '1', 'p', '8', '2', '3', '4', '^', '<', '>', 'P', 'X', 'd', '|', '_')
 
 
-def get_cmarker(totallen, lencolors=10):
+def get_cmarker(totallen: int, lencolors=10):
+    """ returns totallen many colored markers to use for different curves in one plot of matplotlib """
     if len(MARKERS) * lencolors < totallen:
         lencolors = totallen // len(MARKERS) + 1
     colors = cm.nipy_spectral(np.linspace(0, 1, lencolors)).tolist() * (totallen // lencolors + 1)
@@ -31,43 +34,22 @@ def get_cmarker(totallen, lencolors=10):
     return list(zip(colors, markers))[:totallen]
 
 
-def time_format(i):
+def time_format(i: float):
+    """ takes a timestamp (seconds since epoch) and transforms that into a datetime string representation """
     return datetime.fromtimestamp(i).strftime('%Y%m%d%H%M%S')
 
 
-def scale_row(tensors, nrow, inplace=True):
-    rows = int(np.ceil(tensors.size(0) / nrow))
-    if not inplace:
-        tensors = tensors.clone()
-    for r in range(rows):
-        s = r * nrow
-        tensors[s:s+nrow].sub_(tensors[s:s+nrow].min()).div_(tensors[s:s+nrow].max())
-    return tensors
-
-
-def scale_type(types, inplace=True):
-    if not inplace:
-        types = [typ.clone() if typ is not None and len(typ) > 0 else typ for typ in types]
-    for typ in types:
-        if typ is not None and len(typ) > 0:
-            typ.sub_(typ.min()).div_(typ.max())
-    return types
-
-
-def log_scale_each(tensors, inplace=True, max_before_log=10, eps=1e-14):
-    if not inplace:
-        tensors = tensors.clone()
-    mins = tensors.view(tensors.size(0), -1).min(1)[0][:, None, None, None]
-    tensors.sub_(mins)
-    maxs = tensors.view(tensors.size(0), -1).max(1)[0][:, None, None, None]
-    tensors.div_(maxs + eps)
-    tensors = (tensors * max_before_log + 1).log()
-    maxs = tensors.view(tensors.size(0), -1).max(1)[0][:, None, None, None]
-    tensors.div_(maxs + eps)
-    return tensors
-
-
-def colorize(imgs, norm=True, rgb=True, cmap='jet'):
+def colorize(imgs: [Tensor], norm=True, rgb=True, cmap='jet') -> [Tensor]:
+    """
+    For tensors of grayscaled images (n x 1 x h x w),
+    colorizes each image of each tensor by using a colormap that maps [0, 1] -> [0, 1]^3.
+    This is usually used to visualize heatmaps.
+    :param imgs: tensor of grayscaled images (n x 1 x h x w)
+    :param norm: whether to normalize each image s.t. min=0 and max=1
+    :param rgb: whether the output tensor color channels are ordered by rgb (instead of bgr)
+    :param cmap: the colormap that is used to colorize the images
+    :return:
+    """
     matplotlib.use('Agg')
     prev = None
     for img in imgs:
@@ -92,68 +74,61 @@ def colorize(imgs, norm=True, rgb=True, cmap='jet'):
     return imgs
 
 
-def equal_channel(ten, chpos=1):
-    ten = ten.transpose(0, chpos)
-    prev = ten[0]
-    for c in range(ten.size(0)):
-        if (prev != ten[c]).sum() > 0:
-            return False
-    return True
-
-
 class Logger(object):
     """
-    Logger that can be used for logging training stuff.
-    The .log method needs to be invoked at the end of every training iteration.
-    Training information, like loss and metrics, are stored and can be written to a file
-    at any time using the .save method.
-    Also prints current most important info with a predefined rate on the console.
-    :param logdir - str: path to some directory, where all file storing methods store their files
-        placeholder {t} is automatically replaced by starttime
-    :param fps - int: cap the print messages to frames per second
-    :param window - int: the memory depth of the metrics information, i.e.
-        maintains the top-k most recent batches.
-        At the end of each epoch this window is read for all metrics and a mean is stored.
-    :param exp_start_time - int: starting time of the overall experiment, just used for
-        replacing {t} in logdir with it, defaults to the start time of this logger
+    A customizable logger that is passed to Trainer instances to log data during training and testing.
+    The .log method needs to be invoked at the end of every training iteration, i.e. each time after
+    a batch of training data has been fully processed.
+    All log data that has been gathered can be -- at any time -- written to a file using the .save method.
+    The logger prints a part of the most current log data -- like loss, epoch, current batch -- with a
+    predefined rate on the console.
+    Furthermore, the logger offers various methods to write images, plots, and other types of log data
+    that have not been gathered with the .log method, into the according log directory.
+    For instance, this is used at the end of training to save some training heatmaps and after testing to
+    save test heatmaps and ROC plots.
     """
-    def __init__(self, logdir, fps=1, window=10, exp_start_time=None):
+    def __init__(self, logdir: str, fps=1, window=10, exp_start_time: float = None):
+        """
+        :param logdir: path to some directory, where all file storing methods write their files to,
+            placeholder {t} is automatically replaced by the start time of the training
+        :param fps: the rate in which the logger prints data on the console (frames per second)
+        :param window: the memory depth of log data, i.e. the logger only
+            maintains the top-k most recent batches in the .log method. At the end of an epoch the mean of
+            those top-k batches is additionally saved.
+        :param exp_start_time: start time of the overall training, just used for
+            replacing {t} in logdir with it, defaults to the start time of this logger
+        """
         self.start = int(time.time())
         self.exp_start_time = self.start if exp_start_time is None else exp_start_time
-        self.t = time.time()
         self.dir = logdir.replace('{t}', time_format(self.exp_start_time))
         if not pt.exists(os.path.dirname(self.dir)):
             os.makedirs(os.path.dirname(self.dir))
+        self.t = time.time()
         self.fps = fps
-        self.eps = 1
-        self.epos = 0
         self.history = defaultdict(DefaultList)
         self.history['err_all'] = CircleList(window)
         self.__window = window
-        self.__ittime = CircleList(window * 5)
-        self.__lastbat = 0
         self.__lastepoch = 0
         self.__further_keys = []
-        self.__full_time_estimate = None
         self.config_outfile = None
         self.logtxtfile = None
         self.loggingtxt = ''
         self.printlog = ''
         self.__warnings = []
 
-    def reset(self, logdir=None):
+    def reset(self, logdir: str = None, exp_start_time: float = None):
         """
-        Resets all stored information.
+        Resets all stored information. Also sets the start time
         :param logdir: sets a new logdir, defaults to None, which means keeping the old one
-        :return:
+        :param exp_start_time: start time of the overall training, just used for
+            replacing {t} in logdir with it (if logdir is not None), defaults to the old start time
         """
         self.start = int(time.time())
+        self.exp_start_time = self.exp_start_time if exp_start_time is None else exp_start_time
         self.t = time.time()
         self.history = defaultdict(DefaultList)
         self.history['err_all'] = CircleList(self.__window)
         self.history['err'] = DefaultList()
-        self.__ittime = CircleList(self.__window * 5)
-        self.__lastbat = 0
         self.__lastepoch = 0
         self.__further_keys = []
         self.logtxtfile = None
@@ -161,9 +136,26 @@ class Logger(object):
         self.log_prints()
         self.__warnings = []
         if logdir is not None:
-            self.dir = logdir
+            self.dir = logdir.replace('{t}', time_format(self.exp_start_time))
+            if not pt.exists(os.path.dirname(self.dir)):
+                os.makedirs(os.path.dirname(self.dir))
 
-    def log(self, epoch, nbat, batches, err, info=None, infoprint="", force_print=False):
+    def log(self, epoch: int, nbat: int, batches: int, err: Tensor, info: dict = None, infoprint="", force_print=False):
+        """
+        Logs data of a training iteration. Maintains achieved losses and other metrics (info) in a CircleList.
+        Per epoch it also stores the last average loss (and other metrics) that has been logged.
+        Prints current epoch, current batch index, running average loss, and a given info string on the console.
+        Print is skipped if it exceeds the number of print messages per second
+        that are allowed by the fps parameter.
+        :param epoch: current epoch
+        :param nbat: current batch index
+        :param batches: the number of batches per epoch
+        :param err: the computed loss of this iteration, Tensor containing a single scalar
+        :param info: dictionary of further metrics of this iteration {str -> Tensor}.
+            For each key in this dictionary a CircleList is created that is maintained and handled just like the loss.
+        :param infoprint: a string that is to be printed in addition to the usual log data.
+        :param force_print: force a print, e.g. at the end of an epoch, ignoring the fps constraint
+        """
         if info is not None:
             self.log_info(info)
 
@@ -175,10 +167,6 @@ class Logger(object):
 
         diff = time.time() - self.t
         if diff > 1/self.fps or force_print:
-            batdiff = nbat - self.__lastbat
-            batdiff = batdiff if batdiff > 0 else batches + nbat - self.__lastbat
-            self.__lastbat = nbat
-            self.__ittime.append(diff / batdiff)
             self.t = time.time()
             save_epoch(epoch)
             self.print(
@@ -195,7 +183,13 @@ class Logger(object):
         self.history['err_all'].append(err.data.item())
         self.__lastepoch = epoch
 
-    def log_info(self, info, epoch=None):
+    def log_info(self, info: dict, epoch: int = None):
+        """
+        Logs a dictionary of metrics (unique name -> scalar value) {str -> Tensor} in CircleLists.
+        Does not compute an average at the end of an epoch. This is done in the .log method.
+        :param info: dictionary of metrics that are to be maintained like the loss.
+        :param epoch: current epoch
+        """
         for k, v in info.items():
             if k not in self.__further_keys:
                 if '{}_all'.format(k) in self.history:
@@ -206,7 +200,14 @@ class Logger(object):
             if epoch is not None:
                 self.history[k][epoch] = np.mean(self.history['{}_all'.format(k)])
 
-    def print(self, txt, fps=False, err=False):
+    def print(self, txt: str, fps: bool = False, err: bool = False):
+        """
+        Prints text on the console.
+        All prints are remembered and can be written to a file by invoking the .log_prints method.
+        :param txt: the text that is to be printed
+        :param fps: whether to ignore the fps constraint
+        :param err: whether to print on the stderr stream instead
+        """
         if not fps:
             print(txt, file=sys.stderr if err else sys.stdout)
             self.printlog += '{}\n'.format(txt)
@@ -218,6 +219,10 @@ class Logger(object):
                 self.printlog += '{}\n'.format(txt)
 
     def log_prints(self):
+        """
+        Writes all remembered prints to a file named print.log in the log directory.
+        Afterwards, empties the collection of remembered prints.
+        """
         outfile = pt.join(self.dir, 'print.log')
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
@@ -225,13 +230,22 @@ class Logger(object):
             writer.write(self.printlog)
         self.printlog = ''
 
-    def save(self, suffix='.'):
-        outfile = pt.join(self.dir, suffix, 'history.json')
+    def save(self, subdir='.'):
+        """
+        Writes all data logged with the .log and .log_info method to a file in the log directory.
+        That is the history of losses and metrics.
+        Also writes the start time, the duration of the so far training, and the text that has been
+        logged via the .logtxt method.
+        The .save method should be invoked at the end of the training/testing.
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        """
+        outfile = pt.join(self.dir, subdir, 'history.json')
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         with open(outfile, 'w') as writer:
             json.dump(self.history, writer)
-        outfile = pt.join(self.dir, suffix, 'log.txt')
+        outfile = pt.join(self.dir, subdir, 'log.txt')
         self.logtxtfile = outfile
         txt = self.loggingtxt
         self.loggingtxt = ''
@@ -244,8 +258,16 @@ class Logger(object):
         with open(outfile, 'w') as writer:
             writer.write(txt)
 
-    def single_save(self, name, dic, suffix='.'):
-        outfile = pt.join(self.dir, suffix, '{}.json'.format(name))
+    def single_save(self, name, dic, subdir='.'):
+        """
+        Writes a given dictionary to a json file in the log directory.
+        Returns without impact if the size of the dictionary exceeds 10MB.
+        :param name: name of the json file
+        :param dic: serializable dictionary
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        """
+        outfile = pt.join(self.dir, subdir, '{}.json'.format(name))
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         if isinstance(dic, dict):
@@ -253,7 +275,7 @@ class Logger(object):
             if sz > 10000000:
                 self.logtxt(
                     'WARNING: Could not save {}, because size of dict is {}, which exceeded 10MB!'
-                    .format(pt.join(self.dir, suffix, '{}.json'.format(name)), sz),
+                    .format(pt.join(self.dir, subdir, '{}.json'.format(name)), sz),
                     print=True
                 )
                 return
@@ -262,9 +284,16 @@ class Logger(object):
         elif isinstance(dic, torch.Tensor):
             torch.save(dic, outfile.replace('.json', '.pth'))
 
-    def plot(self, suffix='.'):
+    def plot(self, subdir='.'):
+        """
+        Plots logged loss and metrics (info) and writes the plots to pdf files in the log directory.
+        The .plot method should be invoked at the end of the training/testing.
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        :return:
+        """
         matplotlib.use('Agg')
-        outfile = pt.join(self.dir, suffix, 'err.pdf')
+        outfile = pt.join(self.dir, subdir, 'err.pdf')
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         plt.plot(self.history['err'], ls='-')
@@ -286,9 +315,22 @@ class Logger(object):
             plt.savefig(outfile.replace('err.pdf', '{}.pdf'.format(k)))
             plt.close()
 
-    def single_plot(self, name, values, xs=None, xlabel=None, ylabel=None, legend=(), suffix='.'):
+    def single_plot(self, name: str, values: [float], xs: [float] = None,
+                    xlabel: str = None, ylabel: str = None, legend: list = (), subdir='.'):
+        """
+        Plots given values and writes the plot to a pdf file in the log directory.
+        :param name: the name of the pdf file
+        :param values: the values to plot on the y-axis
+        :param xs: the corresponding values on the x-axis, defaults to [1,...,n]
+        :param xlabel: the x-axis label
+        :param ylabel: the y-axis label
+        :param legend: a legend that is to printed in a corner of the plot
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        :return:
+        """
         matplotlib.use('Agg')
-        outfile = pt.join(self.dir, suffix, '{}.pdf'.format(name))
+        outfile = pt.join(self.dir, subdir, '{}.pdf'.format(name))
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         if xs is None:
@@ -301,9 +343,32 @@ class Logger(object):
         plt.savefig(outfile, format='pdf')
         plt.close()
 
-    def imsave(self, name, tensors, suffix='.', nrow=8, scale_mode='each',
-               rowheaders=None, pad=2, row_sep_at=(), colcounter=None):
-        outfile = pt.join(self.dir, suffix, '{}.png'.format(name))
+    def imsave(self, name: str, tensors: Tensor, subdir='.', nrow=8, scale_mode='each',
+               rowheaders: [str] = None, pad=2, row_sep_at: (int, int) = (None, None), colcounter: [str] = None):
+        """
+        Interprets a tensor (n x c x h x w) as a grid of images and writes this to a png file.
+        :param name: the name of the png file
+        :param tensors: the tensor of images
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        :param nrow: the number of images per row in the png
+        :param scale_mode: the type of normalization. Either "none" for no normalization or "each" to
+            scale each image individually, s.t. it lies exactly in the range [0, 1].
+        :param rowheaders: a list of headers for the rows.
+            Each element of the list is printed in front of its corresponding row in the png.
+            The method expects less than 6 characters per header. More characters might be printed over
+            the actual images. Defaults to None, where no headers are printed.
+        :param pad: the amount of padding that is added in between images in the grid.
+        :param row_sep_at: two integer values or empty tuple. If it contains two integers, it adds
+            an additional row of zeros that acts as a separator between rows. The first value describes
+            the height of the separating row and the second value the position (e.g. 2 to put in between the
+            first and second row).
+        :param colcounter: a list of headers for the columns.
+            Each element of the list is printed in front of its corresponding column in the png.
+            Defaults to None for no column headers.
+        :return:
+        """
+        outfile = pt.join(self.dir, subdir, '{}.png'.format(name))
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         t = tensors.clone()
@@ -312,13 +377,7 @@ class Logger(object):
 
         if scale_mode == 'each':
             t = vutils.make_grid(t, nrow=nrow, scale_each=True, normalize=True, padding=pad)
-        elif scale_mode == 'row':
-            t = scale_row(t, nrow)
-            t = vutils.make_grid(t, nrow=nrow, scale_each=False, normalize=False, padding=pad)
         elif scale_mode == 'none':
-            t = vutils.make_grid(t, nrow=nrow, scale_each=False, normalize=False, padding=pad)
-        elif scale_mode == 'log_each':
-            t = log_scale_each(t)
             t = vutils.make_grid(t, nrow=nrow, scale_each=False, normalize=False, padding=pad)
         else:
             raise NotImplementedError('scale mode {} not known'.format(scale_mode))
@@ -359,7 +418,7 @@ class Logger(object):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1
                 )
 
-        if row_sep_at is not None and len(row_sep_at) == 2:
+        if row_sep_at is not None and row_sep_at[0] is not None and len(row_sep_at) == 2:
             height, at = row_sep_at
             t = np.concatenate([t[:at], np.zeros([height, t.shape[1], t.shape[2]]), t[at:]]).astype(np.float32)
 
@@ -367,50 +426,42 @@ class Logger(object):
             t = cv2.cvtColor(t, cv2.COLOR_RGB2BGR)
         cv2.imwrite(outfile, t)
 
-    def plt_imsave(self, name, mat, suffix='.'):
-        matplotlib.use('Agg')
-        outfile = pt.join(self.dir, suffix, '{}.pdf'.format(name))
-        if not pt.exists(os.path.dirname(outfile)):
-            os.makedirs(os.path.dirname(outfile))
-        plt.imshow(mat, cmap='RdBu')
-        plt.axis('off')
-        plt.colorbar()
-        for (j, i), label in np.ndenumerate(mat):
-            label = '{:.2f}'.format(label)
-            plt.text(i, j, label, ha='center', va='center')
-            plt.text(i, j, label, ha='center', va='center')
-        plt.savefig(outfile)
-        plt.close()
-
-    def snapshot(self, net, opt, sched=None, epoch=None, c=None, suffix='.'):
-        outfile = pt.join(self.dir, suffix, 'snapshot.pt')
+    def snapshot(self, net: torch.nn.Module, opt: Optimizer, sched: _LRScheduler = None, epoch: int = None, subdir='.'):
+        """
+        Writes a snapshot of the training, i.e. network weights, optimizer state and scheduler state to a file
+        in the log directory.
+        :param net: the neural network
+        :param opt: the optimizer used
+        :param sched: the learning rate scheduler used
+        :param epoch: the current epoch
+        :param subdir: if given, creates a subdirectory in the log directory. The data is written to a file
+            in this subdirectory instead.
+        :return:
+        """
+        outfile = pt.join(self.dir, subdir, 'snapshot.pt')
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
         torch.save(
-            {'net': net.state_dict(), 'opt': opt.state_dict(), 'sched': sched.state_dict(), 'epoch': epoch, 'c': c}
+            {'net': net.state_dict(), 'opt': opt.state_dict(), 'sched': sched.state_dict(), 'epoch': epoch}
             , outfile
         )
         return outfile
 
-    def save_params(self, net, params, pt_net=None, suffix='.', further=None):
+    def save_params(self, net: torch.nn.Module, params: str, subdir='.'):
         """
-        Saves all given params as text in configfile.
-        Also saves complete code.
-        :param net: network model
-        :param params: argparse parameter dict
-        :param pt_net: pretrain network model
-        :param suffix: suffix to append to logdir
-        :param further: further information in form of a dict
-        :return:
+        Writes a string representation of the network and all given parameters as text to a
+        configuration file named config.txt in the log directory.
+        Also saves a compression of the complete current code as src.tar.gz in the log directory.
+        :param net: the neural network
+        :param params: all parameters of the training in form of a string representation (json dump of a dictionary)
+        :param subdir: suffix to append to logdir
         """
-        outfile = pt.join(self.dir, suffix, 'config.txt')
+        outfile = pt.join(self.dir, subdir, 'config.txt')
         if not pt.exists(os.path.dirname(outfile)):
             os.makedirs(os.path.dirname(outfile))
-        if further is None:
-            further = ""
         self.config_outfile = outfile
         with open(outfile, 'w') as writer:
-            writer.write("{}\n\n{}\n\n{}\n\n{}".format(net, pt_net, params, further))
+            writer.write("{}\n\n{}".format(net, params))
 
         def filter(tarinfo):
             exclude = re.compile('(.*__pycache__.*)|(.*{}.*)'.format(os.sep+'venv'+os.sep))
@@ -419,12 +470,21 @@ class Logger(object):
             else:
                 return None
 
-    def logtxt(self, s, print=False):
+        outfile = pt.join(self.dir, subdir, 'src.tar.gz')
+        if not pt.exists(os.path.dirname(outfile)):
+            os.makedirs(os.path.dirname(outfile))
+        with tarfile.open(outfile, "w:gz") as tar:
+            root = pt.join(pt.dirname(__file__), '..')
+            tar.add(root, arcname=os.path.basename(root), filter=filter)
+
+        self.print('Successfully saved code at {}'.format(outfile), fps=False)
+
+    def logtxt(self, s: str, print=False):
         """
-        Either writes txt directly to existing logtxtfile (created in .save()).
-        Or if not yet existent, memorized input and stores when save() is executed.
-        :param s:
-        :return:
+        Either appends txt directly to existing file named log.txt (created in the .save method),
+        or, if not yet existent, memorizes input and writes to log.txt when save() is executed.
+        :param s: string that is to be logged in the log.txt file in the log directory
+        :param print: whether to also print the string on the console
         """
         if print:
             self.print(s)
@@ -434,7 +494,29 @@ class Logger(object):
             with open(self.logtxtfile, 'a') as writer:
                 writer.write('{}\n'.format(s))
 
-    def timeit(self, msg='Operation'):
+    def warning(self, s: str, unique: bool = False, print: bool = True):
+        """
+        Writes a warning to the WARNING.log file in the log directory.
+        :param s: the warning that is to be written
+        :param unique: whether a warning that has already been written is to be ignored
+        :param print: whether to additionally print the warning on the console
+        """
+        if unique and s in self.__warnings:
+            return
+        if print:
+            self.print(s, err=True)
+        outfile = pt.join(self.dir, 'WARNINGS.log')
+        if not pt.exists(os.path.dirname(outfile)):
+            os.makedirs(os.path.dirname(outfile))
+        with open(outfile, 'a') as writer:
+            writer.write(s)
+        self.__warnings.append(s)
+
+    def timeit(self, msg: str = 'Operation'):
+        """
+        Returns a Timer that is to be used in a `with` statement to measure the time that all operations inside
+        the `with` statement took. Once the `with` statement is exited, prints the measured time together with msg.
+        """
         return self.Timer(self, msg)
 
     class Timer(object):
@@ -449,93 +531,19 @@ class Logger(object):
         def __exit__(self, exc_type, exc_val, exc_tb):
             self.logger.print('{} took {} seconds.'.format(self.msg, time.time() - self.start))
 
-    def warning(self, s, unique=False, print=True):
-        if unique and s in self.__warnings:
-            return
-        if print:
-            self.print(s, err=True)
-        outfile = pt.join(self.dir, 'WARNINGS.log')
-        if not pt.exists(os.path.dirname(outfile)):
-            os.makedirs(os.path.dirname(outfile))
-        with open(outfile, 'a') as writer:
-            writer.write(s)
-        self.__warnings.append(s)
 
-
-class ItLogger(Logger):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.history['it_err'] = DefaultList()
-        self.__further_it_keys = []
-
-    def reset(self, *args, **kwargs):
-        super().reset(*args, **kwargs)
-        self.history['it_err'] = DefaultList()
-
-    def log(self, epoch, nbat, batches, err, info=None, infoprint="", force_print=False):
-        super().log(epoch, nbat, batches, err, info, infoprint, force_print)
-        self.history['it_err'].append(err.data.item())
-
-    def log_info(self, info, epoch=None):
-        super().log_info(info, epoch)
-        for k, v in info.items():
-            k = 'it_{}'.format(k)
-            if k not in self.__further_it_keys:
-                if k in self.history:
-                    raise ValueError('{} is already part of the history.'.format(k))
-                self.history[k] = DefaultList()
-                self.__further_it_keys.append(k)
-            self.history[k].append(v.data.item())
-
-    def plot(self, suffix='.'):
-        matplotlib.use('Agg')
-        super().plot(suffix)
-        outfile = pt.join(self.dir, suffix, 'it_err.pdf')
-        plt.plot(self.history['it_err'], ls='-')
-        legend = ["err"]
-        if 'it_val_err' in self.__further_it_keys:
-            plt.plot(self.history['it_val_err'], ls='-')
-            legend += ['val_err']
-        plt.legend(legend)
-        plt.ylabel('error')
-        plt.xlabel('it')
-        plt.savefig(outfile, format='pdf')
-        plt.close()
-        for k in self.__further_it_keys:
-            if k == 'it_val_err':
-                continue
-            plt.plot(self.history[k], ls='-')
-            plt.ylabel(k.replace('it_', ''))
-            plt.xlabel('it')
-            plt.savefig(outfile.replace('it_err.pdf', k), format='pdf')
-            plt.close()
-
-
-class ProgressBar(object):
-    EPOCH = datetime.utcfromtimestamp(0)
-
-    def __init__(self, total, fps=2):
-        self.total = total
-        self.cur = 1
-        self.time = (datetime.now() - ProgressBar.EPOCH).total_seconds()
-        self.fps = fps
-
-    def step(self):
-        if (datetime.now() - ProgressBar.EPOCH).total_seconds() - self.time > 1/self.fps:
-            percent = "{0:.2f}".format(100 * (self.cur / self.total))
-            filled = int(60 * self.cur / self.total)
-            bar = '-' * filled + ' ' * (60 - filled)
-            print('\r|%s| %s%%' % (bar, percent), end='')
-            self.time = (datetime.now() - ProgressBar.EPOCH).total_seconds()
-        if self.cur == self.total:
-            print()
-        self.cur += 1
-
-    def reset(self):
-        self.cur = 1
-
-
-def plot_many_roc(logdir, results, labels=None, name='roc', mean=False):
+def plot_many_roc(logdir: str, results: [dict], labels: [str] = None, name: str = 'roc', mean: bool = False):
+    """
+    Plots the ROCs of different training runs together in one plot and writes that to a pdf file in the log directory.
+    The ROCs are given in form of result dictionaries {'tpr': [], 'fpr': [], 'ths': [], 'auc': int, ...},
+    where ths contains the thresholds, tpr the true positive rates per threshold, fpr the false positive rates
+    per threshold and auc the AuROC of the curve.
+    :param logdir: the log directory in which the pdf file is to be stored
+    :param results: a list of result dictionaries
+    :param labels: a list of labels for the individual ROCs
+    :param name: the name of the pdf file
+    :param mean: whether to also plot a dotted "mean ROC"
+    """
     if results is None or any([r is None for r in results]) or len(results) == 0:
         return None
     matplotlib.use('Agg')

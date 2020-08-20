@@ -4,9 +4,10 @@ import torch
 import numpy as np
 import random
 from abc import abstractmethod
+from typing import Callable
 
 
-def get_target_label_idx(labels, targets):
+def get_target_label_idx(labels: np.ndarray, targets: np.ndarray):
     """
     Get the indices of labels that are included in targets.
     :param labels: array of labels
@@ -16,7 +17,7 @@ def get_target_label_idx(labels, targets):
     return np.argwhere(np.isin(labels, targets)).flatten().tolist()
 
 
-def local_contrast_normalization(x: torch.tensor, scale='l2'):
+def local_contrast_normalization(x: torch.tensor, scale: str = 'l2'):
     """
     Apply local contrast normalization to tensor, i.e. subtract mean across features (pixels) and normalize by scale,
     which is either the standard deviation, L1- or L2-norm across features (pixels).
@@ -41,69 +42,19 @@ def local_contrast_normalization(x: torch.tensor, scale='l2'):
     return x
 
 
-def get_min_max_mean_std(loader, ch=3):
-    all_x, all_y = [], []
-    for x, y in loader:
-        all_x.append(x), all_y.append(y)
-    x, y = torch.cat(all_x), torch.cat(all_y)
-    min, max, mean, std = [], [], [], []
-    for l in sorted(set(y.tolist())):
-        min.append(x[y == l].transpose(0, 1).reshape(ch, -1).min(1)[0].tolist())
-        max.append(x[y == l].transpose(0, 1).reshape(ch, -1).max(1)[0].tolist())
-        mean.append(x[y == l].transpose(0, 1).reshape(ch, -1).mean(1).tolist())
-        std.append(x[y == l].transpose(0, 1).reshape(ch, -1).std(1).tolist())
-    return min, max, mean, std
-
-
-def get_statistics(self, TorchDatasetClass, numClasses, shape):
-    stats = []
-    stats_gcn = []
-    for c in range(numClasses):
-        self.n_classes = 2  # 0: normal, 1: outlier
-        self.shape = shape
-        self.normal_classes = tuple([c])
-        self.outlier_classes = list(range(0, numClasses))
-        self.outlier_classes.remove(c)
-        test_transform = transform = transforms.Compose([
-            transforms.ToTensor(),
-        ])
-        target_transform = transforms.Lambda(lambda x: int(x in self.outlier_classes))
-        train_set = TorchDatasetClass(root=self.root, split='train', download=True,
-                                      transform=transform, target_transform=target_transform)
-
-        self._generate_artificial_anomalies_train_set('unsupervised', {}, train_set, c)
-
-        self._test_set = TorchDatasetClass(root=self.root, split='test', download=True,
-                                           transform=test_transform, target_transform=target_transform)
-
-        mi, ma, mean, std = get_min_max_mean_std(self.loaders(100)[0], ch=self.shape[0])
-        stats.append(tuple([mi, ma, mean, std]))
-
-        test_transform = transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
-        ])
-        target_transform = transforms.Lambda(lambda x: int(x in self.outlier_classes))
-        train_set = TorchDatasetClass(root=self.root, split='train', download=True,
-                                      transform=transform, target_transform=target_transform)
-
-        self._generate_artificial_anomalies_train_set('unsupervised', {}, train_set, c)
-
-        self._test_set = TorchDatasetClass(root=self.root, split='test', download=True,
-                                           transform=test_transform, target_transform=target_transform)
-        mi, ma, mean, std = get_min_max_mean_std(self.loaders(100)[0], ch=self.shape[0])
-        stats_gcn.append(tuple([mi, ma, mean, std]))
-    return stats, stats_gcn
-
-
 class MultiCompose(transforms.Compose):
-    def __call__(self, imgs):
+    """
+    Like transforms.Compose, but applies all transformations to a multitude of variables, instead of just one.
+    More importantly, for random transformations (like RandomCrop), applies the same choice of transformation, i.e.
+    e.g. the same crop for all variables.
+    """
+    def __call__(self, imgs: []):
         for t in self.transforms:
             imgs = list(imgs)
-            imgs = self.multi_apply(imgs, t)
+            imgs = self.__multi_apply(imgs, t)
         return imgs
 
-    def multi_apply(self, imgs, t):
+    def __multi_apply(self, imgs: [], t: Callable):
         if isinstance(t, transforms.RandomCrop):
             for idx, img in enumerate(imgs):
                 if t.padding is not None and t.padding > 0:
@@ -135,13 +86,13 @@ class MultiCompose(transforms.Compose):
         elif isinstance(t, LabelConditioner):
             assert t.n == len(imgs)
             t_picked = t(*imgs)
-            imgs[:-1] = self.multi_apply(imgs[:-1], t_picked)
+            imgs[:-1] = self.__multi_apply(imgs[:-1], t_picked)
         elif isinstance(t, MultiTransform):
             assert t.n == len(imgs)
             imgs = t(*imgs)
         elif isinstance(t, transforms.RandomChoice):
             t_picked = random.choice(t.transforms)
-            imgs = self.multi_apply(imgs, t_picked)
+            imgs = self.__multi_apply(imgs, t_picked)
         elif isinstance(t, MultiCompose):
             imgs = t(imgs)
         else:
@@ -150,11 +101,13 @@ class MultiCompose(transforms.Compose):
 
 
 class MultiTransform(object):
+    """ Class to mark a transform operation that expects multiple inputs """
     n = 0  # amount of expected inputs
     pass
 
 
 class ImgGTTargetTransform(MultiTransform):
+    """ Class to mark a transform operation that expects three inputs: (image, ground-truth map, label) """
     n = 3
     @abstractmethod
     def __call__(self, img, gt, target):
@@ -162,19 +115,21 @@ class ImgGTTargetTransform(MultiTransform):
 
 
 class ImgGtTransform(MultiTransform):
+    """ Class to mark a transform operation that expects two inputs: (image, ground-truth map) """
     n = 2
     @abstractmethod
     def __call__(self, img, gt):
         return img, gt
 
 
-class MajorityVoteGtMap(ImgGtTransform):
-    def __call__(self, img, gt):
-        return img, gt.fill_(1 if gt[gt == 1].sum() > gt[gt == 0].sum() else 0)
-
-
 class LabelConditioner(ImgGTTargetTransform):
-    def __init__(self, conds, t1, t2):
+    def __init__(self, conds: [int], t1: Callable, t2: Callable):
+        """
+        Applies transformation t1 if the encountered label is in conds, otherwise applies transformation t2.
+        :param conds: list of labels
+        :param t1: some transformation
+        :param t2: some other transformation
+        """
         self.conds = conds
         self.t1 = t1
         self.t2 = t2
@@ -187,7 +142,8 @@ class LabelConditioner(ImgGTTargetTransform):
 
 
 class ImgTransformWrap(ImgGtTransform):
-    def __init__(self, t):
+    """ Wrapper for some transformation that is used in a MultiCompose, but is only to be applied to the first input """
+    def __init__(self, t: Callable):
         self.t = t
 
     def __call__(self, img, gt):
@@ -195,11 +151,16 @@ class ImgTransformWrap(ImgGtTransform):
 
 
 class BlackCenter(object):
-    def __init__(self, percentage=0.5, inverse=False):
+    def __init__(self, percentage: float = 0.5, inverse: bool = False):
+        """
+        Blackens the center of given image, i.e. puts pixel value to zero.
+        :param percentage: the percentage of the center in the overall image.
+        :param inverse: whether to inverse the operation, i.e. blacken the borders instead.
+        """
         self.percentage = percentage
         self.inverse = inverse
 
-    def __call__(self, img):
+    def __call__(self, img: torch.Tensor):
         c, h, w = img.shape
         oh, ow = int((1 - self.percentage) * h * 0.5), int((1 - self.percentage) * w * 0.5)
         if not self.inverse:

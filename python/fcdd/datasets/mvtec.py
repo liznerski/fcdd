@@ -7,24 +7,43 @@ from fcdd.datasets.bases import TorchvisionDataset, GTSubset
 from fcdd.datasets.mvtec_base import MvTec
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, get_target_label_idx
+from fcdd.util.logging import Logger
 
 
 class ADMvTec(TorchvisionDataset):
-    enlarge = True
+    enlarge = True  # enlarge dataset by repeating all data samples ten time, speeds up data loading
 
-    def __init__(self, root, normal_class=0, preproc='ae', supervise_mode='unsupervised', supervise_params=None,
-                 raw_shape=240, logger=None):
+    def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
+                 supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool,
+                 logger: Logger = None, raw_shape: int = 240):
+        """
+        AD dataset for MVTec-AD. If no MVTec data is found in the root directory,
+        the data is downloaded and processed to be stored in torch tensors with appropriate size (defined in raw_shape).
+        This speeds up data loading at the start of training.
+        :param root: root directory where data is found or is to be downloaded to
+        :param normal_class: the class considered nominal
+        :param preproc: the kind of preprocessing pipeline
+        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param supervise_mode: the type of generated artificial anomalies.
+            See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: limits the number of different anomalies in case of Outlier Exposure (defined in noise_mode)
+        :param online_supervision: whether to sample anomalies online in each epoch,
+            or offline before training (same for all epochs in this case).
+        :param logger: logger
+        :param raw_shape: the height and width of the raw MVTec images before passed through the preprocessing pipeline.
+        """
         super().__init__(root, logger=logger)
 
-        enlarge = ADMvTec.enlarge
         self.n_classes = 2  # 0: normal, 1: outlier
         self.shape = (3, 224, 224)
         self.raw_shape = (3,) + (raw_shape, ) * 2
         self.normal_classes = tuple([normal_class])
         self.outlier_classes = list(range(0, 15))
         self.outlier_classes.remove(normal_class)
-        assert supervise_params.get('nominal_label', 0) in [0, 1], 'GT maps are required to be binary!'
-        self.nominal_label = supervise_params.get('nominal_label', 0)
+        assert nominal_label in [0, 1], 'GT maps are required to be binary!'
+        self.nominal_label = nominal_label
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
 
         # min max after gcn l1 norm has been applied
@@ -61,6 +80,7 @@ class ADMvTec(TorchvisionDataset):
              (2.515115737915039, 2.515115737915039, 2.515115737915039)]
         ]
 
+        # mean and std of original images per class
         mean = [
             (0.53453129529953, 0.5307118892669678, 0.5491130352020264),
             (0.326835036277771, 0.41494372487068176, 0.46718254685401917),
@@ -78,7 +98,6 @@ class ADMvTec(TorchvisionDataset):
             (0.6718143820762634, 0.47696375846862793, 0.35050269961357117),
             (0.4014520049095154, 0.4014520049095154, 0.4014520049095154)
         ]
-
         std = [
             (0.3667600452899933, 0.3666728734970093, 0.34991779923439026),
             (0.15321789681911469, 0.21510766446590424, 0.23905669152736664),
@@ -97,10 +116,10 @@ class ADMvTec(TorchvisionDataset):
             (0.32304847240448, 0.32304847240448, 0.32304847240448)
         ]
 
-        # different types of preprocessing pipelines, 'ae' is for using LCN, 'aug{X}' for augmentations
+        # different types of preprocessing pipelines, 'lcn' is for using LCN, 'aug{X}' for augmentations
         img_gt_transform, img_gt_test_transform = None, None
         all_transform = []
-        if preproc == 'ae':
+        if preproc == 'lcn':
             assert self.raw_shape == self.shape, 'in case of no augmentation, raw shape needs to fit net input shape'
             img_gt_transform = img_gt_test_transform = MultiCompose([
                 transforms.ToTensor(),
@@ -145,7 +164,7 @@ class ADMvTec(TorchvisionDataset):
                 ),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
-        elif preproc in ['aeaug1']:
+        elif preproc in ['lcnaug1']:
             img_gt_transform = MultiCompose([
                 transforms.RandomChoice(
                     [transforms.RandomCrop(self.shape[-1], padding=0), transforms.Resize(self.shape[-1], Image.NEAREST)]
@@ -179,25 +198,26 @@ class ADMvTec(TorchvisionDataset):
                 )
             ])
         else:
-            raise ValueError('Preprocessing set {} is not known.'.format(preproc))
+            raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
 
-        if supervise_params['online']:
+        if online_supervision:
             # order: target_transform -> all_transform -> img_gt transform -> transform
             assert supervise_mode not in ['supervised'], 'supervised mode works only offline'
             all_transform = MultiCompose([
                 *all_transform,
-                OnlineSuperviser(self, supervise_mode, supervise_params),
+                OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
             ])
             train_set = MvTec(
                 root=self.root, split='train', download=True,
                 target_transform=target_transform,
                 img_gt_transform=img_gt_transform, transform=transform, all_transform=all_transform,
-                shape=self.raw_shape, enlarge=enlarge, normal_classes=self.normal_classes,
-                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label
+                shape=self.raw_shape, normal_classes=self.normal_classes,
+                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label,
+                enlarge=ADMvTec.enlarge
             )
             self._train_set = GTSubset(
                 train_set, get_target_label_idx(train_set.targets.clone().data.cpu().numpy(), self.normal_classes)
@@ -209,7 +229,8 @@ class ADMvTec(TorchvisionDataset):
                 ),
                 img_gt_transform=img_gt_test_transform, transform=test_transform, shape=self.raw_shape,
                 normal_classes=self.normal_classes,
-                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label
+                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label,
+                enlarge=False
             )
             test_idx_normal = get_target_label_idx(test_set.targets.clone().data.cpu().numpy(), self.normal_classes)
             self._test_set = GTSubset(test_set, test_idx_normal)
@@ -220,9 +241,10 @@ class ADMvTec(TorchvisionDataset):
             train_set = MvTec(
                 root=self.root, split='train', download=True,
                 target_transform=target_transform, all_transform=all_transform,
-                img_gt_transform=img_gt_transform, transform=transform, shape=self.raw_shape, enlarge=enlarge,
+                img_gt_transform=img_gt_transform, transform=transform, shape=self.raw_shape,
                 normal_classes=self.normal_classes,
-                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label
+                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label,
+                enlarge=ADMvTec.enlarge
             )
             test_set = MvTec(
                 root=self.root, split='test_anomaly_label_target', download=True,
@@ -231,9 +253,9 @@ class ADMvTec(TorchvisionDataset):
                 ),
                 img_gt_transform=img_gt_test_transform, transform=test_transform, shape=self.raw_shape,
                 normal_classes=self.normal_classes,
-                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label
+                nominal_label=self.nominal_label, anomalous_label=self.anomalous_label, enlarge=False
             )
             test_idx_normal = get_target_label_idx(test_set.targets.clone().data.cpu().numpy(), self.normal_classes)
             self._test_set = GTSubset(test_set, test_idx_normal)
-            self._generate_artificial_anomalies_train_set(supervise_mode, supervise_params, train_set, normal_class)
+            self._generate_artificial_anomalies_train_set(supervise_mode, noise_mode, oe_limit, train_set, normal_class)
 

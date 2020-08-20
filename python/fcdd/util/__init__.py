@@ -1,14 +1,17 @@
-import numpy as np
 import json
-import torchvision.utils as vutils
+from copy import deepcopy
+
 import cv2
-import torch
 import matplotlib
 import matplotlib.pyplot as plt
-from copy import deepcopy
+import numpy as np
+import torch
+import torchvision.utils as vutils
+from torch import Tensor
 
 
 class DefaultList(list):
+    """ A list that automatically creates default entries if an index is accessed which is not yet set """
     def __init__(self, default=np.nan):
         list.__init__(self)
         self.__default = default
@@ -29,6 +32,11 @@ class DefaultList(list):
 
 
 class CircleList(list):
+    """
+    A list that has a limited number of entries, which we term window size.
+    An entry is set by using index modulo the window size.
+    This works by the FIFO principle.
+    """
     def __init__(self, window, default=np.nan):
         list.__init__(self)
         while len(self) < window:
@@ -46,13 +54,24 @@ class CircleList(list):
 
 
 class NumpyEncoder(json.JSONEncoder):
+    """ Encoder to correctly use json on numpy arrays """
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
 
 
-def imshow(tensors, ms=100, name='out', nrow=8, norm=True, use_plt=True):
+def imshow(tensors: Tensor, ms=100, name='out', nrow=8, norm=True, use_plt=True):
+    """
+    Given a tensor of images, this immediately displays them as a matrix of images using either matplotlib or opencv.
+    :param tensors: tensor of images nxcxhxw
+    :param ms: milliseconds to block while showing, only works for opencv
+    :param name: name of the window that displays the images
+    :param nrow: the number of images shown per row
+    :param norm: whether to normalize the images to 0-1 range
+    :param use_plt: whether to use matplotlib or opencv
+    :return:
+    """
     if use_plt:
         matplotlib.use('TkAgg')
     if isinstance(tensors, (list, tuple)):
@@ -81,7 +100,17 @@ def imshow(tensors, ms=100, name='out', nrow=8, norm=True, use_plt=True):
         cv2.waitKey(ms)
 
 
-def imsave(tensors, path, nrow=8, norm=True, pad=2, padval=0):
+def imsave(tensors: Tensor, path: str, nrow=8, norm=True, pad=2, padval=0):
+    """
+    Given a tensor of images, this encodes them and stores the images as a matrix of images at some destination.
+    :param tensors: tensor of images nxcxhxw
+    :param path: destination to store the images at
+    :param nrow: the number images shown per row
+    :param norm: whether to normalize the images to 0-1 range
+    :param pad: the amount of padding used between the individual images
+    :param padval: the pixel value that is used for padding
+    :return:
+    """
     if isinstance(tensors, (list, tuple)):
         assert len(set([t.dim() for t in tensors])) == 1 and tensors[0].dim() == 4
         tensors = [t.float().div(255) if t.dtype == torch.uint8 else t for t in tensors]

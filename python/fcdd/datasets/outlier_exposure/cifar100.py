@@ -6,15 +6,13 @@ import torch
 import numpy as np
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
 class MYCIFAR100(CIFAR100):
+    """ Reimplements get_item to transform tensor input to pil image before applying transformation. """
     def __getitem__(self, index):
-        """
-        Reimplements getitem to transform tensor to pil image.
-        """
         img, target = self.data[index], self.targets[index]
 
         img = transforms.ToPILImage()(img)
@@ -31,7 +29,18 @@ class MYCIFAR100(CIFAR100):
 class OECifar100(MYCIFAR100):
     cifar10_classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-    def __init__(self, size, root=None, train=True, limit_var=20):  # split = Train
+    def __init__(self, size: torch.Size, root: str = None, train: bool = True, limit_var: int = 20):
+        """
+        Outlier Exposure dataset for Cifar-100.
+        :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
+            number of samples available in Cifar-100, dataset will be enlarged by repetitions to fit n.
+            This is important as exactly n images are extracted per iteration of the data_loader.
+            For online supervision n should be set to 1 because only one sample is extracted at a time.
+        :param root: root directory where data is found or is to be downloaded to.
+        :param train: whether to use training or test samples.
+        :param limit_var: limits the number of different samples, i.e. randomly chooses limit_var many samples
+            from all available ones to be the training data.
+        """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
         root = pt.join(root, 'cifar100', )

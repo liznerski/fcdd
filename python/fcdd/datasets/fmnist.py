@@ -4,13 +4,28 @@ import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose
+from fcdd.util.logging import Logger
 from torchvision.datasets import FashionMNIST
 
 
 class ADFMNIST(TorchvisionDataset):
-
-    def __init__(self, root, normal_class=0, preproc='ae',
-                 supervise_mode='unsupervised', supervise_params=None, logger=None):
+    def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
+                 supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool, logger: Logger = None):
+        """
+        AD dataset for Fashion-MNIST.
+        :param root: root directory where data is found or is to be downloaded to
+        :param normal_class: the class considered nominal
+        :param preproc: the kind of preprocessing pipeline
+        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param supervise_mode: the type of generated artificial anomalies.
+            See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: limits the number of different anomalies in case of Outlier Exposure (defined in noise_mode)
+        :param online_supervision: whether to sample anomalies online in each epoch,
+            or offline before training (same for all epochs in this case)
+        :param logger: logger
+        """
         super().__init__(root, logger=logger)
 
         self.n_classes = 2  # 0: normal, 1: outlier
@@ -19,11 +34,11 @@ class ADFMNIST(TorchvisionDataset):
         self.normal_classes = tuple([normal_class])
         self.outlier_classes = list(range(0, 10))
         self.outlier_classes.remove(normal_class)
-        assert supervise_params.get('nominal_label', 0) in [0, 1]
-        self.nominal_label = supervise_params.get('nominal_label', 0)
+        assert nominal_label in [0, 1]
+        self.nominal_label = nominal_label
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
 
-        # Pre-computed min and max values (after applying GCN) from train data per class
+        # Pre-computed min and max values (after applying LCN) from train data per class
         min_max_l1 = [
             (-2.681239128112793, 24.85430908203125),
             (-2.5778584480285645, 11.169795989990234),
@@ -37,6 +52,7 @@ class ADFMNIST(TorchvisionDataset):
             (-1.3859291076660156, 11.426650047302246)
         ]
 
+        # mean and std of original images per class
         mean = [
             [0.3256056010723114],
             [0.22290456295013428],
@@ -49,7 +65,6 @@ class ADFMNIST(TorchvisionDataset):
             [0.35355499386787415],
             [0.30119451880455017]
         ]
-
         std = [
             [0.35073918104171753],
             [0.34353047609329224],
@@ -63,8 +78,8 @@ class ADFMNIST(TorchvisionDataset):
             [0.37053292989730835]
         ]
 
-        # different types of preprocessing pipelines, 'ae' is for using LCN, 'aug{X}' for augmentations
-        if preproc == 'ae':
+        # different types of preprocessing pipelines, 'lcn' is for using LCN, 'aug{X}' for augmentations
+        if preproc == 'lcn':
             test_transform = transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
@@ -90,7 +105,7 @@ class ADFMNIST(TorchvisionDataset):
                 transforms.Lambda(lambda x: x + 0.01 * torch.randn_like(x)),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
-        elif preproc in ['aeaug1']:
+        elif preproc in ['lcnaug1']:
             test_transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
@@ -108,29 +123,29 @@ class ADFMNIST(TorchvisionDataset):
                 )
             ])
         else:
-            raise ValueError('Preprocessing set {} is not known.'.format(preproc))
+            raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
         all_transform = None
-        if supervise_params['online']:
-            if supervise_params.get('noise_mode', '') not in ['emnist']:
+        if online_supervision:
+            if noise_mode not in ['emnist']:
                 self.raw_shape = (1, 28, 28)
                 all_transform = MultiCompose([
-                    OnlineSuperviser(self, supervise_mode, supervise_params),
+                    OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
                     transforms.Lambda(lambda x: x.squeeze() if isinstance(x, torch.Tensor) else x)
                 ])
             else:
-                all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, supervise_params), ])
+                all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit), ])
             self.raw_shape = (28, 28)
 
         train_set = MyFashionMNIST(root=self.root, train=True, download=True, normal_classes=self.normal_classes,
                                    transform=transform, target_transform=target_transform, all_transform=all_transform)
 
         self._generate_artificial_anomalies_train_set(
-            supervise_mode if not supervise_params['online'] else 'unsupervised',
-            supervise_params, train_set, normal_class
+            supervise_mode if not online_supervision else 'unsupervised',  # gets rid of true anomalous samples
+            noise_mode, oe_limit, train_set, normal_class
         )
 
         self._test_set = MyFashionMNIST(root=self.root, train=False, download=True, normal_classes=self.normal_classes,
@@ -138,6 +153,7 @@ class ADFMNIST(TorchvisionDataset):
 
 
 class MyFashionMNIST(FashionMNIST):
+    """ Fashion-MNIST dataset extension, s.t. target_transform and online superviser is applied """
     def __init__(self, root, train=True, transform=None, target_transform=None,
                  download=False, normal_classes=None, all_transform=None):
         super().__init__(root, train, transform, target_transform, download)

@@ -1,66 +1,78 @@
 import torch
-import numpy as np
-import collections
-import os.path as pt
-from sklearn.metrics import roc_auc_score, roc_curve
-from fcdd.training.bases import ObjectiveADTrainer
-from fcdd.models import SpatialCenterNet
-from fcdd.training.deep_svdd import CNNTrainer
+from fcdd.models.bases import FCDDNet, BaseNet
+from fcdd.training.fcdd import FCDDTrainer
+from fcdd.training.hsc import HSCTrainer
+from fcdd.training.ae import AETrainer
+from fcdd.util.logging import Logger
+from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.optimizer import Optimizer
+from torch.utils.data.dataloader import DataLoader
 
 
-class ADTrainer(object):
-    """
-    Trainer class for training the net, testing, logging and visualization
-    :param net: net for training FCDD, i.e. minimize distance to some hypersphere with center c
-    :param opt: opt for net
-    :param sched: lr scheduler for net
-    :param dataset_loaders: train and test loader
-    :param logger: logger
-    :param device: torch device
-    :param objective: which center is to be taken. One of the following:
-        - hard_boundary: hypersphere classifier
-        - spatial_center: fcdd
-        - autoencoder
-    :param objective_params: dictionary with further parameters for objective, see OBJECTIVE_PARAMS HELP
-    :param supervise_params: dictionary with further parameters for supervise modes, see SUPERVISE_PARAMS HELP
-    :param quantile: quantile param for normlization used in viz of heatmaps
-    """
+class SuperTrainer(object):
     def __init__(
-            self, net, opt, sched, dataset_loaders, logger, device=torch.device('cuda:0'),
-            objective='spatial_center', objective_params=None, supervise_params=None, quantile=0.93
+            self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
+            logger: Logger, device=torch.device('cuda:0'), objective='fcdd',
+            quantile=0.93, resdown=64, gauss_std: float = None, blur_heatmaps=True
     ):
-        # Objectives and specific objective initialization
-        self.objective = objective
-        self.objective_params = objective_params
-        self.supervise_params = supervise_params
-        if objective in ['spatial_center']:
-            assert isinstance(net, SpatialCenterNet)
+        """
+        This super trainer maintains networks, optimizers, schedulers, and everything related to training and testing.
+        Most importantely, it offers the :meth:`train` and :meth:`test`.
+        Both methods are adjusted to fit the objective, i.e. the super trainer creates individual sub trainer instances
+        based on the objective -- e.g. an FCDDTrainer for the FCDD objective -- whose train and test methods are invoked
+        respectively.
+        For training, the trainer trains the network using the optimizer and scheduler, and it
+        logs losses and other relevant metrics.
+        For testing, the trainer computes scores (ROCs) for the test samples and generates heatmaps for samples
+        arranged in different ways for both training and test sets (see :meth:`fcdd.training.bases.BaseADTrainer.test`)
 
-        if self.objective != 'autoencoder':
-            self.trainer = CNNTrainer(
-                net, opt, sched, dataset_loaders, logger, device, self.objective, self.objective_params,
+        :param net: neural network model that is to be trained and tested.
+        :param opt: some optimizer that is used to fit the network parameters.
+        :param sched: some learning rate scheduler that adjusts the learning rate during training.
+        :param dataset_loaders: train and test loader, might either return 2 values (input, label)
+            or 3 values (input, label, ground-truth map).
+        :param logger: some logger that is used to log all training and test information.
+        :param device: either a cuda device or cpu.
+        :param objective: the objective that is to be trained, one of {'fcdd', 'hsc', 'ae'}.
+        :param quantile: the quantile used for normalizing the heatmaps (see Appendix of the paper).
+        :param resdown: the maximum allowed resolution per heatmap for logged images (height and width at once).
+        :param gauss_std: the standard deviation used for Gaussian kernels (upsampling and blurring).
+            None defaults to the formula in :func:`fcdd.datasets.noise.kernel_size_to_std`.
+        :param blur_heatmaps: whether to blur heatmaps that have not been upsampled with a Gaussian kernel.
+        """
+        if objective in ['fcdd']:
+            assert isinstance(net, FCDDNet), 'For the FCDD objective, the net needs to be an FCDD net!'
+        elif objective in ['hsc']:
+            assert not isinstance(net, FCDDNet), 'For the HSC objective, the net must not be an FCDD net!'
+        elif objective in ['ae']:
+            assert hasattr(net, 'encoder_cls'), 'For the AE objective, the net must be an autoencoder!'
+
+        if objective == 'fcdd':
+            self.trainer = FCDDTrainer(
+                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
+            )
+        elif objective == 'hsc':
+            self.trainer = HSCTrainer(
+                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
             )
         else:
             self.trainer = AETrainer(
-                net, opt, sched, dataset_loaders, logger, device, self.objective, self.objective_params
+                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
             )
 
-        # Other
         self.logger = logger
-        self.net = net
-        self.opt = opt
-        self.sched = sched
-        self.device = device
         self.res = {}  # keys = {pt_roc, roc, gtmap_roc, prc, gtmap_prc}
-        self.quantile = quantile
 
-    def train(self, epochs, snap=None, acc_batches=1):
+    def train(self, epochs: int, snap: str = None, acc_batches=1):
         """
-        Trains the net for anomaly detection.
-        :param epochs: no of epochs
-        :param snap: path to snapshot, to load weights for model before any training.
-        :param acc_batches: accumulate as many batches and do backprop only on accumulated once
-        :return:
+        Trains the model for anomaly detection. Afterwards, stores and plots all metrics that have
+        been logged during training in respective files in the log directory. Additionally, saves a snapshot
+        of the model.
+        :param epochs: number of epochs (full data loader iterations).
+        :param snap: path to training snapshot to load network parameters for model before any training.
+            If epochs exceeds the current epoch loaded from the snapshot, training is continued with
+            the optimizer and schedulers having loaded their state from the snapshot as well.
+        :param acc_batches: accumulate that many batches (see :meth:`fcdd.training.bases.BaseTrainer.train`).
         """
         start = self.load(snap)
 
@@ -71,121 +83,20 @@ class ADTrainer(object):
             self.logger.plot()
             self.trainer.snapshot(epochs)
 
-    def test(self, specific_viz_ids=()):
-        res = self.trainer.test(quantile=self.quantile, specific_viz_ids=specific_viz_ids)
+    def test(self, specific_viz_ids: ([int], [int]) = ()) -> dict:
+        """
+        Tests the model, i.e. computes scores and heatmaps and stores them in the log directory.
+        For details see :meth:`fcdd.training.bases.BaseTrainer.test`.
+        :param specific_viz_ids: See :meth:`fcdd.training.bases.BaseTrainer.test`
+        """
+        res = self.trainer.test(specific_viz_ids)
         if res is not None:
             self.res.update(res)
         return self.res
 
     def load(self, path):
+        """ loads snapshot of model parameters and training state """
         epoch = 0
         if path is not None:
             epoch = self.trainer.load(path)
         return epoch
-
-
-class AETrainer(ObjectiveADTrainer):
-    def loss(self, outs, ins, labels, gtmaps=None, reduce='mean'):
-        assert reduce in ['mean', 'none']
-        if self.net.training and len(set(labels.tolist())) > 1:
-            self.logger.warning('AE training received more than one label. Is that on purpose?', unique=True)
-        loss = (outs - ins) ** 2
-        return loss.mean() if reduce == 'mean' else loss
-
-    def score(self, labels, ascores, imgs, outs, gtmaps=None, grads=None):
-        rascores = self.reduce_pixelwise_ascore(ascores) if gtmaps is not None else None
-        ascores = self.reduce_ascore(ascores).tolist()
-        fpr, tpr, thresholds = roc_curve(labels, ascores)
-        score = roc_auc_score(labels, ascores)
-        res = {'roc': {'tpr': tpr, 'fpr': fpr, 'ths': thresholds, 'auc': score}}
-        self.logger.single_plot(
-            'roc_curve', tpr, fpr, xlabel='false positive rate', ylabel='true positive rate',
-            legend=['auc={}'.format(score)]
-        )
-        self.logger.single_save('roc', res['roc'])
-        self.logger.logtxt('##### TEST SCORE {} #####'.format(score), print=True)
-        imgs = imgs[np.asarray(labels) == 0][np.argsort(np.asarray(ascores)[np.asarray(labels) == 0])]
-        self.logger.imsave('most_normal', imgs[:32], scale_mode='each')
-        self.logger.imsave('most_anomalous', imgs[-32:], scale_mode='each')
-        if gtmaps is not None:
-            self.logger.print('Computing GT test score...')
-            ascores = rascores
-            gtmaps = self.test_loader.dataset.dataset.get_original_gtmaps_normal_class()
-            ascores = torch.nn.functional.interpolate(ascores, (gtmaps.shape[-2:]))
-            flat_gtmaps, flat_ascores = gtmaps.reshape(-1).int().tolist(), ascores.reshape(-1).tolist()
-            gtfpr, gttpr, gtthresholds = roc_curve(flat_gtmaps, flat_ascores)
-            gt_roc_score = roc_auc_score(flat_gtmaps, flat_ascores)
-            gtmap_roc_res = {'tpr': gttpr, 'fpr': gtfpr, 'ths': gtthresholds, 'auc': gt_roc_score}
-            self.logger.single_plot(
-                'roc_curve_gt_pixelwise', gttpr, gtfpr, xlabel='false positive rate', ylabel='true positive rate',
-                legend=['auc={}'.format(gt_roc_score)]
-            )
-            self.logger.single_save(
-                'roc_gt_pixelwise', gtmap_roc_res
-            )
-            self.logger.logtxt('##### GTMAP ROC TEST SCORE {} #####'.format(gt_roc_score), print=True)
-            res['gtmap_roc'] = gtmap_roc_res
-
-        return res
-
-    def interpretation_viz(self, labels, losses, ascores, imgs, outs,
-                           gtmaps=None, grads=None, show_per_cls=20, nrow=None, name='heatmaps', qu=0.93,
-                           suffix='.', specific_idx=()):
-        show_per_cls = min(show_per_cls, min(collections.Counter(labels).values()))
-        if show_per_cls % 2 != 0:
-            show_per_cls -= 1
-        nrow = nrow or show_per_cls
-
-        tim, rowheaders = self._compute_inter_viz(
-            labels, losses, imgs, outs, gtmaps, None, show_per_cls, nrow, colorize_out=False, qu=qu,
-            resdownsample=self.objective_params.get('resdown', 64)
-        )
-        self.logger.imsave(
-            '{}'.format(name), tim, nrow=nrow, scale_mode='none', rowheaders=rowheaders,
-        )
-
-        # Concise paper picture: Each row grows from most nominal to most anomalous (equidistant).
-        # (1) input (2) pixelwise anomaly score
-        if 'train' not in name:
-            res = 128
-            rascores = self.reduce_ascore(ascores)
-            k = show_per_cls // 3
-            inpshp = imgs.shape
-            for l in sorted(set(labels)):
-                lid = set((torch.from_numpy(np.asarray(labels)) == l).nonzero().squeeze(-1).tolist())
-                sort = [
-                    i for i in np.argsort(rascores.detach().view(rascores.size(0), -1).sum(1)).tolist() if i in lid
-                ]
-                splits = np.array_split(sort, k)
-                idx = [s[int(n / (k - 1) * len(s)) if n != len(splits) - 1 else -1] for n, s in enumerate(splits)]
-                self.logger.logtxt(
-                    'Interpretation visualization paper image {} indicies for label {}: {}'
-                    .format('{}_paper_lbl{}'.format(name, l), l, idx)
-                )
-                self.create_paper_image(idx, name, inpshp, l, suffix, res, qu, imgs, ascores, grads, gtmaps)
-                if specific_idx is not None and len(specific_idx) > 0:
-                    self.create_paper_image(
-                        specific_idx[l], name, inpshp, l,
-                        pt.join(suffix, 'specific_viz_ids'),
-                        res, qu, imgs, ascores, grads, gtmaps
-                    )
-
-    def create_paper_image(self, idx, name, inpshp, lbl, suffix, res, qu, imgs, ascores, grads, gtmaps):
-        for norm in ['local', 'semi_global']:
-            rows = []
-            rows.append(self._make_heatmap(imgs[idx], inpshp, maxres=res))
-            rows.append(
-                self._make_heatmap(
-                    ascores[idx], inpshp, maxres=res, qu=qu, colorize=True, norm=norm, blur=True, ae=True,
-                    ref=ascores if norm == 'global' else None
-                )
-            )
-            if gtmaps is not None:
-                rows.append(self._make_heatmap(gtmaps[idx], inpshp, maxres=res, norm=None, ae=True))
-            tim = torch.cat(rows)
-            imname = 'ae_{}_paper_{}_lbl{}'.format(name, norm, lbl)
-            self.logger.single_save(imname, torch.stack(rows), suffix=pt.join('tims', suffix))
-            self.logger.imsave(imname, tim, nrow=len(idx), scale_mode='none', suffix=suffix)
-
-    def snapshot(self, epochs):
-        self.logger.snapshot(self.net, self.opt, self.sched, epochs)

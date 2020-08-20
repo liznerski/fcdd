@@ -1,18 +1,17 @@
 from fcdd.runners.bases import ClassesRunner
-from fcdd.runners.argparse_confs import default_imagenet_conf
+from fcdd.runners.argparse_configs import DefaultImagenetConfig
 
 
-class ImageNetClassesRunner(ClassesRunner):
-    def add_parser_params(self, parser):
-        parser = default_imagenet_conf(parser)
-        parser.add_argument('--it', type=int, default=5, help='how many times to repeat exp')
+class ImagenetConfig(DefaultImagenetConfig):
+    def __call__(self, parser):
+        parser = super().__call__(parser)
+        parser.add_argument('--it', type=int, default=5, help='Number of runs per class with different random seeds.')
         return parser
 
 
 if __name__ == '__main__':
-    runner = ImageNetClassesRunner()
+    runner = ClassesRunner(ImagenetConfig())
     runner.args.logdir += '_imagenet_'
     runner.run()
-    runner.copy_files_to_super('WARNINGS.log')
     print()
 

@@ -1,16 +1,16 @@
 from fcdd.runners.bases import ClassesRunner
-from fcdd.runners.argparse_confs import default_cifar10_conf
+from fcdd.runners.argparse_configs import DefaultCifar10Config
 
 
-class Cifar10ClassesRunner(ClassesRunner):
-    def add_parser_params(self, parser):
-        parser = default_cifar10_conf(parser)
-        parser.add_argument('--it', type=int, default=5, help='how many times to repeat exp')
+class Cifar10Config(DefaultCifar10Config):
+    def __call__(self, parser):
+        parser = super().__call__(parser)
+        parser.add_argument('--it', type=int, default=5, help='Number of runs per class with different random seeds.')
         return parser
 
 
 if __name__ == '__main__':
-    runner = Cifar10ClassesRunner()
+    runner = ClassesRunner(Cifar10Config())
     runner.args.logdir += '_cifar10_'
     runner.run()
     print()

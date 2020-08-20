@@ -6,16 +6,18 @@ import zipfile
 
 import numpy as np
 import torch
+from typing import Callable
 import torchvision.transforms as transforms
 from PIL import Image
 from fcdd.datasets.bases import GTMapADDataset
-from fcdd.util import imsave
+from fcdd.util.logging import Logger
 from torchvision.datasets import VisionDataset
 from torchvision.datasets.imagenet import check_integrity, verify_str_arg
 from torchvision.datasets.utils import download_url, _is_gzip, _is_tar, _is_targz, _is_zip
 
 
 class MvTec(VisionDataset, GTMapADDataset):
+    """ Implemention of a torch style MVTec dataset """
     url = "ftp://guest:GU%2E205dldo@ftp.softronics.ch/mvtec_anomaly_detection/mvtec_anomaly_detection.tar.xz"
     base_folder = 'mvtec'
     labels = (
@@ -26,21 +28,51 @@ class MvTec(VisionDataset, GTMapADDataset):
     normal_anomaly_label = 'good'
     normal_anomaly_label_idx = 0
 
-    def __init__(self, root, split='train', target_transform=None, img_gt_transform=None,
-                 transform=None, all_transform=None, download=True, shape=(3, 300, 300), enlarge=False,
-                 normal_classes=(), nominal_label=0, anomalous_label=1, logger=None
+    def __init__(self, root: str, split: str = 'train', target_transform: Callable = None,
+                 img_gt_transform: Callable = None, transform: Callable = None, all_transform: Callable = None,
+                 download=True, shape=(3, 300, 300), normal_classes=(), nominal_label=0, anomalous_label=1,
+                 logger: Logger = None, enlarge: bool = False
                  ):
+        """
+        Loads all data from the prepared torch tensors. If such torch tensors containg MVTec data are not found
+        in the given root directory, instead downloads the raw data and prepares the tensors.
+        They contain labels, images, and ground-truth maps for a fixed size, determined by the shape parameter.
+        :param root: directory where the data is to be found.
+        :param split: whether to use "train", "test", or "test_anomaly_label_target" data.
+            In the latter case the get_item method returns labels indexing the anomalous class rather than
+            the object class. That is, instead of returning 0 for "bottle", it returns "1" for "large_broken".
+        :param target_transform: function that takes label and transforms it somewhat.
+            Target transform is the first transform that is applied.
+        :param img_gt_transform: function that takes image and ground-truth map and transforms it somewhat.
+            Useful to apply the same augmentation to image and ground-truth map (e.g. cropping), s.t.
+            the ground-truth map still matches the image.
+            ImgGt transform is the third transform that is applied.
+        :param transform: function that takes image and transforms it somewhat.
+            Transform is the last transform that is applied.
+        :param all_transform: function that takes image, label, and ground-truth map and transforms it somewhat.
+            All transform is the second transform that is applied.
+        :param download: whether to download if data is not found in root.
+        :param shape: the shape (c x h x w) the data should be resized to (images and ground-truth maps).
+        :param normal_classes: all the classes that are considered nominal (usually just one).
+        :param nominal_label: the label that is to be returned to mark nominal samples.
+        :param anomalous_label: the label that is to be returned to mark anomalous samples.
+        :param logger: logger
+        :param enlarge: whether to enlarge the dataset, i.e. repeat all data samples ten times.
+            Consequently, one iteration (epoch) of the data loader returns ten times as many samples.
+            This speeds up loading because the MVTec-AD dataset has a poor number of samples and
+            PyTorch requires additional work in between epochs.
+        """
         super(MvTec, self).__init__(root, transform=transform, target_transform=target_transform)
         self.split = verify_str_arg(split, "split", ("train", "test", "test_anomaly_label_target"))
         self.img_gt_transform = img_gt_transform
         self.all_transform = all_transform
         self.shape = shape
-        self.enlarge = enlarge
         self.orig_gtmaps = None
         self.normal_classes = normal_classes
         self.nominal_label = nominal_label
         self.anom_label = anomalous_label
         self.logger = logger
+        self.enlarge = enlarge
 
         if download:
             self.download(shape=self.shape[1:])
@@ -66,7 +98,7 @@ class MvTec(VisionDataset, GTMapADDataset):
             assert -3 not in [self.nominal_label, self.anom_label]
         print('Dataset complete.')
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> (torch.Tensor, int, torch.Tensor):
         img, label = self.data[index], self.targets[index]
 
         if self.split == 'test_anomaly_label_target':
@@ -169,7 +201,12 @@ class MvTec(VisionDataset, GTMapADDataset):
             print('Files already downloaded.')
             return
 
-    def get_original_gtmaps_normal_class(self):
+    def get_original_gtmaps_normal_class(self) -> torch.Tensor:
+        """
+        Returns ground-truth maps of original size for test samples.
+        The class is chosen according to the normal class the dataset was created with.
+        This method is usually used for pixel-wise ROC computation.
+        """
         assert self.split != 'train', 'original maps are only available for test mode'
         assert len(self.normal_classes) == 1, 'normal classes must be known and there must be exactly one'
         assert self.all_transform is None, 'all_transform would be skipped here'
@@ -179,43 +216,6 @@ class MvTec(VisionDataset, GTMapADDataset):
             orig_ds = torch.load(self.orig_data_file(self.normal_classes[0]))
             self.orig_gtmaps = orig_ds['test_maps'].unsqueeze(1).div(255)
         return self.orig_gtmaps
-
-    def print(self, path, size=10, separate=False, classes=range(15)):
-        pics = []
-        for c in classes:
-            alsize = len(set(self.anomaly_labels[self.targets == c].tolist()))
-            counter = 0
-            for al in sorted(set(self.anomaly_labels[self.targets == c].tolist())):
-                if counter >= size:
-                    print(
-                        'WARNING: For class {} there are more anomaly labels '
-                        '({}) than size ({}) fits, thus some are skipped.'
-                        .format(c, alsize, size)
-                    )
-                    break
-                n = max(size // alsize, 1)
-                if al == 0 and size // alsize > 0:
-                    n = size // alsize + size % alsize
-                img = self.data[(self.targets == c) * (self.anomaly_labels == al)][:n]
-                pics.append(img)
-                counter += n
-            counter = 0
-            for al in sorted(set(self.anomaly_labels[self.targets == c].tolist())):
-                if counter >= size:
-                    break
-                n = max(size // alsize, 1)
-                if al == 0 and size // alsize > 0:
-                    n = size // alsize + size % alsize
-                img = self.gt[(self.targets == c) * (self.anomaly_labels == al)][:n].unsqueeze(1).repeat(1, 3, 1, 1)
-                pics.append(img)
-                counter += n
-            if separate:
-                pics = torch.cat(pics)
-                imsave(pics, path.replace('.', '_{}.'.format(c)), size, norm=True)
-                pics = []
-        if not separate:
-            pics = torch.cat(pics)
-            imsave(pics, path, size, norm=True)
 
     @property
     def data_file(self):

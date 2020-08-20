@@ -7,14 +7,14 @@ from copy import deepcopy
 
 DS_CHOICES = ('mnist', 'cifar10', 'fmnist', 'mvtec', 'imagenet', 'pascalvoc')
 PREPROC_CHOICES = (
-    'ae', 'default', 'aug1', 'aug2', 'aeaug1', 'aeauganomonly', 'aeaug1_blackcenter', 'aeaug1_blackcenter_inverted',
-    'aug1_blackcenter', 'aug1_blackcenter_inverted'
+    'lcn', 'lcnaug1', 'aug1', 'aug1_blackcenter', 'aug1_blackcenter_inverted'
 )
 
 
-def load_dataset(dataset_name, data_path, normal_class, preproc='ae',
-                 supervise_mode='unsupervised', supervise_params=None, raw_shape=240, logger=None):
-    """Loads the dataset."""
+def load_dataset(dataset_name: str, data_path: str, normal_class: int, preproc: str,
+                 supervise_mode: str, noise_mode: str, online_supervision: bool, nominal_label: int,
+                 oe_limit: int, logger=None):
+    """ Loads the dataset with given preprocessing pipeline and supervise parameters """
 
     assert dataset_name in DS_CHOICES
     assert preproc in PREPROC_CHOICES
@@ -24,28 +24,32 @@ def load_dataset(dataset_name, data_path, normal_class, preproc='ae',
     if dataset_name == 'cifar10':
         dataset = ADCIFAR10(
             root=data_path, normal_class=normal_class, preproc=preproc,
-            supervise_mode=supervise_mode, supervise_params=supervise_params, logger=logger
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
     elif dataset_name == 'fmnist':
         dataset = ADFMNIST(
             root=data_path, normal_class=normal_class, preproc=preproc,
-            supervise_mode=supervise_mode, supervise_params=supervise_params, logger=logger
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
     elif dataset_name == 'mvtec':
         dataset = ADMvTec(
             root=data_path, normal_class=normal_class, preproc=preproc,
-            supervise_mode=supervise_mode, supervise_params=supervise_params,
-            raw_shape=raw_shape, logger=logger
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
     elif dataset_name == 'imagenet':
         dataset = ADImageNet(
             root=data_path, normal_class=normal_class, preproc=preproc,
-            supervise_mode=supervise_mode, supervise_params=supervise_params, logger=logger
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
     elif dataset_name == 'pascalvoc':
         dataset = ADPascalVoc(
             root=data_path, normal_class=normal_class, preproc=preproc,
-            supervise_mode=supervise_mode, supervise_params=supervise_params, logger=logger
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
 
     return dataset

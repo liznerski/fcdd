@@ -4,13 +4,28 @@ import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, BlackCenter
+from fcdd.util.logging import Logger
 from torchvision.datasets import CIFAR10
 
 
 class ADCIFAR10(TorchvisionDataset):
-
-    def __init__(self, root: str, normal_class=5, preproc='ae',
-                 supervise_mode='unsupervised', supervise_params=None, logger=None):
+    def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
+                 supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool, logger: Logger = None):
+        """
+        AD dataset for Cifar-10.
+        :param root: root directory where data is found or is to be downloaded to
+        :param normal_class: the class considered nominal
+        :param preproc: the kind of preprocessing pipeline
+        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param supervise_mode: the type of generated artificial anomalies.
+            See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: limits the number of different anomalies in case of Outlier Exposure (defined in noise_mode)
+        :param online_supervision: whether to sample anomalies online in each epoch,
+            or offline before training (same for all epochs in this case).
+        :param logger: logger
+        """
         super().__init__(root, logger=logger)
 
         self.n_classes = 2  # 0: normal, 1: outlier
@@ -19,14 +34,14 @@ class ADCIFAR10(TorchvisionDataset):
         self.normal_classes = tuple([normal_class])
         self.outlier_classes = list(range(0, 10))
         self.outlier_classes.remove(normal_class)
-        assert supervise_params.get('nominal_label', 0) in [0, 1]
-        self.nominal_label = supervise_params.get('nominal_label', 0)
+        assert nominal_label in [0, 1]
+        self.nominal_label = nominal_label
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
 
         if self.nominal_label != 0:
             print('Swapping labels, i.e. anomalies are 0 and nominals are 1.')
 
-        # Pre-computed min and max values (after applying L1GCN) from train data per class
+        # Pre-computed min and max values (after applying LCN) from train data per class
         min_max_l1 = [
             (-28.94083453598571, 13.802961825439636),
             (-6.681770233365245, 9.158067708230273),
@@ -40,7 +55,7 @@ class ADCIFAR10(TorchvisionDataset):
             (-6.132882973622672, 8.046098172351265)
         ]
 
-        # mean and std of original pictures per class
+        # mean and std of original images per class
         mean = [
             [0.5256516933441162, 0.5603281855583191, 0.5888723731040955],
             [0.4711322784423828, 0.45446228981018066, 0.4471212327480316],
@@ -66,10 +81,10 @@ class ADCIFAR10(TorchvisionDataset):
             [0.2680525481700897, 0.26910799741744995, 0.2810165584087372]
         ]
 
-        # different types of preprocessing pipelines, 'ae' is for using LCN, 'aug{X}' for augmentations
+        # different types of preprocessing pipelines, 'lcn' is for using LCN, 'aug{X}' for augmentations
         # also contains options for the black center experiments
         all_transform = []
-        if preproc == 'ae':
+        if preproc == 'lcn':
             test_transform = transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
@@ -124,13 +139,13 @@ class ADCIFAR10(TorchvisionDataset):
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
         else:
-            raise ValueError('Preprocessing set {} is not known.'.format(preproc))
+            raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
-        if supervise_params['online']:
-            all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, supervise_params), *all_transform])
+        if online_supervision:
+            all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit), *all_transform])
         else:
             all_transform = MultiCompose(all_transform)
 
@@ -140,8 +155,8 @@ class ADCIFAR10(TorchvisionDataset):
         train_set.data = torch.from_numpy(train_set.data).transpose(1, 3).transpose(2, 3)
 
         self._generate_artificial_anomalies_train_set(
-            supervise_mode if not supervise_params['online'] else 'unsupervised',
-            supervise_params, train_set, normal_class
+            supervise_mode if not online_supervision else 'unsupervised', noise_mode,
+            oe_limit, train_set, normal_class
         )
 
         self._test_set = MYCIFAR10(root=self.root, train=False, download=True, normal_classes=self.normal_classes,
@@ -149,6 +164,7 @@ class ADCIFAR10(TorchvisionDataset):
 
 
 class MYCIFAR10(CIFAR10):
+    """ Cifar-10 dataset extension, s.t. target_transform and online superviser is applied """
     def __init__(self, root, train=True, transform=None, target_transform=None,
                  download=False, all_transform=None, normal_classes=None):
         super().__init__(root, train, transform, target_transform, download)

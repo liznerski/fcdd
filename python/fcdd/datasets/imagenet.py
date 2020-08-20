@@ -9,6 +9,7 @@ from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.outlier_exposure.imagenet import MyImageFolder
 from fcdd.datasets.preprocessing import get_target_label_idx
+from fcdd.util.logging import Logger
 from torch.utils.data import Subset
 from torchvision.datasets.imagenet import META_FILE, parse_train_archive, parse_val_archive
 from torchvision.datasets.imagenet import verify_str_arg, load_meta_file, check_integrity, parse_devkit_archive
@@ -23,12 +24,28 @@ class ADImageNet(TorchvisionDataset):
                   'snowmobile', 'soccer ball', 'stingray', 'strawberry', 'tank', 'toaster', 'volcano']
     base_folder = 'imagenet'
 
-    def __init__(self, root: str, normal_class=1, preproc='aug1',
-                 supervise_mode='unsupervised', supervise_params=None, logger=None):
-        assert supervise_params.get('online', True), 'ImageNet artificial anomaly generation needs to be online'
+    def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
+                 supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool, logger: Logger = None):
+        """
+        AD dataset for ImageNet. Following Hendrycks et al. (https://arxiv.org/abs/1812.04606) this AD dataset
+        is limited to 30 of the 1000 classes of Imagenet (see :attr:`ADImageNet.ad_classes`).
+        :param root: root directory where data is found or is to be downloaded to
+        :param normal_class: the class considered nominal
+        :param preproc: the kind of preprocessing pipeline
+        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param supervise_mode: the type of generated artificial anomalies.
+            See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: limits the number of different anomalies in case of Outlier Exposure (defined in noise_mode)
+        :param online_supervision: whether to sample anomalies online in each epoch,
+            or offline before training (same for all epochs in this case)
+        :param logger: logger
+        """
+        assert online_supervision, 'ImageNet artificial anomaly generation needs to be online'
         assert supervise_mode in ['unsupervised', 'other', 'noise'], \
-            'malformed_normal is not supported, because nominal image is only loaded ' \
-            'if not replaced by anomaly to speedup data preprocessing'
+            'Noise mode "malformed_normal" is not supported for ImageNet because nominal images are loaded ' \
+            'only if not replaced by some artificial anomaly (to speedup data preprocessing).'
 
         root = pt.join(root, self.base_folder)
         super().__init__(root, logger=logger)
@@ -39,8 +56,8 @@ class ADImageNet(TorchvisionDataset):
         self.normal_classes = tuple([normal_class])
         self.outlier_classes = list(range(0, 30))
         self.outlier_classes.remove(normal_class)
-        assert supervise_params.get('nominal_label', 0) in [0, 1]
-        self.nominal_label = supervise_params.get('nominal_label', 0)
+        assert nominal_label in [0, 1]
+        self.nominal_label = nominal_label
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
 
         if self.nominal_label != 0:
@@ -53,7 +70,7 @@ class ADImageNet(TorchvisionDataset):
         # different types of preprocessing pipelines, here just choose whether to use augmentations
         if preproc in ['', None, 'default', 'none']:
             test_transform = transform = transforms.Compose([
-                transforms.Resize(self.shape[-1]),
+                transforms.Resize((self.shape[-2], self.shape[-1])),
                 transforms.ToTensor(),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
@@ -74,13 +91,13 @@ class ADImageNet(TorchvisionDataset):
                 transforms.Normalize(mean, std)
             ])
         else:
-            raise ValueError('Preprocessing set {} is not known.'.format(preproc))
+            raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
         if supervise_mode not in ['unsupervised', 'other']:
-            all_transform = OnlineSuperviser(self, supervise_mode, supervise_params)
+            all_transform = OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit)
         else:
             all_transform = None
 
@@ -93,7 +110,7 @@ class ADImageNet(TorchvisionDataset):
             self.train_ad_classes_idx.index(t) if t in self.train_ad_classes_idx else np.nan for t in train_set.targets
         ]
         self._generate_artificial_anomalies_train_set(
-            'unsupervised', supervise_params, train_set, normal_class,
+            'unsupervised', noise_mode, oe_limit, train_set, normal_class,  # gets rid of true anomalous samples
         )
         self._test_set = MyImageNet(
             root=self.root, split='val', normal_classes=self.normal_classes,
@@ -112,6 +129,11 @@ class ADImageNet(TorchvisionDataset):
 
 
 class PathsMetaFileImageNet(MyImageFolder):
+    """
+    Reimplements the basic functionality of the torch ImageNet dataset, i.e. preparation of
+    a variable containing image paths, targets, etc.
+    Does not yet implement get_item.
+    """
     def __init__(self, root, split='train', **kwargs):
         root = self.root = os.path.expanduser(root)
         self.split = verify_str_arg(split, "split", ("train", "val"))
@@ -148,6 +170,7 @@ class PathsMetaFileImageNet(MyImageFolder):
 
 
 class MyImageNet(PathsMetaFileImageNet):
+    """ ImageNet torch dataset extention, s.t. target_transform and online superviser is applied """
     # s = len([t for t in self.test_loader.dataset.dataset.targets if not np.isnan(t)])
     # order = np.random.choice(list(range(s)), replace=False, size=s)
     fixed_random_order = np.load(pt.join(ROOT, 'datasets', 'confs', 'imagenet30_test_random_order.npy'))

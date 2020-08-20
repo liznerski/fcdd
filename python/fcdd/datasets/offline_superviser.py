@@ -1,21 +1,49 @@
 import torch
+from torch.utils.data.dataset import Dataset
 
 
-def noise(ds, generated_noise, norm, nom_class, train_set, gt=False):
+def noise(outlier_classes: [int], generated_noise: torch.Tensor, norm: torch.Tensor,
+          nom_class: int, train_set: Dataset, gt: bool = False) -> Dataset:
+    """
+    Creates a dataset based on the nominal classes of a given dataset and generated noise anomalies.
+    :param outlier_classes: a list of all outlier class indices.
+    :param generated_noise: torch tensor of noise images (might also be Outlier Exposure based noise) (n x c x h x w).
+    :param norm: torch tensor of nominal images (n x c x h x w).
+    :param nom_class: the index of the class that is considered nominal.
+    :param train_set: some training dataset.
+    :param gt: whether to provide ground-truth maps as well, atm not available!
+    :return: a modified dataset, with training data consisting of nominal samples and artificial anomalies.
+    """
     if gt:
         raise ValueError('No GT mode for pure noise available!')
     anom = generated_noise.clamp(0, 255).byte()
     data = torch.cat((norm, anom))
     targets = torch.cat(
         (torch.ones(norm.size(0)) * nom_class,
-         torch.ones(anom.size(0)) * ds.outlier_classes[0])
+         torch.ones(anom.size(0)) * outlier_classes[0])
     )
     train_set.data = data
     train_set.targets = targets
     return train_set
 
 
-def malformed_normal(ds, generated_noise, norm, nom_class, train_set, gt=False, brightness_threshold=0.11*255):
+def malformed_normal(outlier_classes: [int], generated_noise: torch.Tensor, norm: torch.Tensor, nom_class: int,
+                     train_set: Dataset, gt: bool = False, brightness_threshold: float = 0.11*255) -> Dataset:
+    """
+    Creates a dataset based on the nominal classes of a given dataset and generated noise anomalies.
+    Unlike above, the noise images are not directly utilized as anomalies, but added to nominal samples to
+    create malformed normal anomalies.
+    :param outlier_classes: a list of all outlier class indices.
+    :param generated_noise: torch tensor of noise images (might also be Outlier Exposure based noise) (n x c x h x w).
+    :param norm: torch tensor of nominal images (n x c x h x w).
+    :param nom_class: the index of the class that is considered nominal.
+    :param train_set: some training dataset.
+    :param gt: whether to provide ground-truth maps as well.
+    :param brightness_threshold: if the average brightness (averaged over color channels) of a pixel exceeds this
+        threshold, the noise image's pixel value is subtracted instead of added.
+        This avoids adding brightness values to bright pixels, where approximately no effect is achieved at all.
+    :return: a modified dataset, with training data consisting of nominal samples and artificial anomalies.
+    """
     assert (norm.dim() == 4 or norm.dim() == 3) and generated_noise.shape == norm.shape
     norm_dim = norm.dim()
     if norm_dim == 3:
@@ -34,7 +62,7 @@ def malformed_normal(ds, generated_noise, norm, nom_class, train_set, gt=False, 
     data = torch.cat((norm, anom))
     targets = torch.cat(
         (torch.ones(norm.size(0)) * nom_class,
-         torch.ones(anom.size(0)) * ds.outlier_classes[0])
+         torch.ones(anom.size(0)) * outlier_classes[0])
     )
     if norm_dim == 3:
         data = data.squeeze(1)

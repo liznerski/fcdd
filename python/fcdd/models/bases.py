@@ -1,38 +1,166 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
+from copy import deepcopy
 
 import numpy as np
 import torch
 from fcdd.datasets.noise import gkern
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
-class ReceptiveNet(torch.nn.Module):
-    def __init__(self, final_dim, in_shape, bias=False, **kwargs):
+class ReceptiveModule(torch.nn.Module, ABC):
+    """ Baseclass for network modules that provide an upsampling based on the receptive field using Gaussian kernels """
+
+    @abstractmethod
+    def __init__(self):
         super().__init__()
-        assert len(in_shape) == 3 and in_shape[1] == in_shape[2]
-        self.__in_shape = in_shape
-        self.__final_dim = final_dim
-        self.__bias = bias
-        self.__n = in_shape[2]
-        self.__r = 1
-        self.__j = 1
-        self.__s = 0
-        self.__initial_reception = {
-            'n': self.__n, 'j': self.__j, 'r': self.__r, 's': self.__s, 'img_shape': self.__in_shape
-        }
+        self._n = None  # feature length
+        self._r = None  # receptive field extent
+        self._j = None  # receptive field jump
+        self._s = None  # receptive field shift
+        self._in_shape = None  # input shape (n x c x h x w)
 
     @property
     def reception(self):
-        return {'n': self.__n, 'j': self.__j, 'r': self.__r, 's': self.__s, 'img_shape': self.in_shape}
+        """
+        Returns receptive field information, i.e.
+        {'n': feature length, 'j' jump, 'r' extent, 's' shift, 'i' input shape}.
+        """
+        return {'n': self._n, 'j': self._j, 'r': self._r, 's': self._s, 'img_shape': self._in_shape}
 
-    def set_reception(self, n, j, r, s):
-        self.__n = n
-        self.__j = j
-        self.__r = r
-        self.__s = s
+    def set_reception(self, n: int, j: int, r: float, s: float, in_shape: [int] = None):
+        self._n = n
+        self._j = j
+        self._r = r
+        self._s = s
+        if in_shape is not None:
+            self._in_shape = in_shape
+
+    def receptive_upsample(self, pixels: torch.Tensor, reception=True, std: float = None, cpu=True):
+        """
+        Implement this to upsample given tensor images based on the receptive field with a Gaussian kernel.
+        Usually one can just invoke the receptive_upsample method of the last convolutional layer.
+        :param pixels: tensors that are to be upsampled (n x c x h x w)
+        :param reception: whether to use reception. If 'False' uses nearest neighbor upsampling instead.
+        :param std: standard deviation of Gaussian kernel. Defaults to kernel_size_to_std in fcdd.datasets.noise.py.
+        :param cpu: whether the output should be on cpu or gpu
+        """
+        if self.reception is None or any([i not in self.reception for i in ['j', 's', 'r', 'img_shape']]) \
+                or not reception:
+            if reception:
+                self.logger.logtxt(
+                    'Fell back on nearest neighbor upsampling since reception was not available!', print=True
+                )
+            return self.__upsample_nn(pixels)
+        else:
+            assert pixels.dim() == 4 and pixels.size(1) == 1, 'receptive upsample works atm only for one channel'
+            pixels = pixels.squeeze()
+            if self.reception is None:
+                raise ValueError('receptive field is unknown!')
+            ishape = self.reception['img_shape']
+            pixshp = pixels.shape
+            # regarding s: if between pixels, pick the first
+            s, j, r = int(self.reception['s']), self.reception['j'], self.reception['r']
+            gaus = torch.from_numpy(gkern(r, std)).float().to(pixels.device)
+            pad = (r - 1) // 2
+            if (r - 1) % 2 == 0:
+                res = torch.nn.functional.conv_transpose2d(
+                    pixels.unsqueeze(1), gaus.unsqueeze(0).unsqueeze(0), stride=j, padding=0,
+                    output_padding=ishape[-1] - (pixshp[-1] - 1) * j - 1
+                )
+            else:
+                res = torch.nn.functional.conv_transpose2d(
+                    pixels.unsqueeze(1), gaus.unsqueeze(0).unsqueeze(0), stride=j, padding=0,
+                    output_padding=ishape[-1] - (pixshp[-1] - 1) * j - 1 - 1
+                )
+            out = res[:, :, pad - s:-pad - s, pad - s:-pad - s]  # shift by receptive center (s)
+            return out if not cpu else out.cpu()
+
+    @property
+    def device(self):
+        return list(self.parameters())[0].device
+
+    def __upsample_nn(self, pixels):
+        res = torch.nn.functional.interpolate(pixels, self.reception['img_shape'][1:])
+        return res
+
+
+class RecConv2d(torch.nn.Conv2d, ReceptiveModule):
+    """
+    Like torch.nn.Conv2d, but sets its own receptive field information based on the receptive field information
+    of the previous layer:
+    :param in_width: the width = height of the output
+    :param in_jump: the distance between two adjacent features in this layer's output
+        (or jump) w.r.t. to the overall network input. For instance, for j=2 the centers of the receptive field
+        of two adjacent pixels in this layer's output have a distance of 2 pixels.
+    :param in_reception: the receptive field extent r
+    :param in_start: the shift of the receptive field
+
+    cf. https://medium.com/mlreview/a-guide-to-receptive-field-arithmetic-for-convolutional-neural-networks-e0f514068807
+    """
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 in_width, in_jump, in_reception, in_start, img_shape,
+                 stride=1, padding=0, dilation=1, groups=1,
+                 bias=True, padding_mode='zeros'):
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+        self.set_reception(
+            (in_width + 2 * padding - kernel_size) // stride + 1,
+            in_jump * stride,
+            in_reception + (kernel_size - 1) * in_jump,
+            in_start + ((kernel_size - 1) / 2 - padding) * in_jump,
+            img_shape
+        )
+
+    @property
+    def reception(self):
+        return super().reception
+
+
+class RecMaxPool2d(torch.nn.MaxPool2d, ReceptiveModule):
+    """
+    Like torch.nn.MaxPool2d, but sets its own receptive field information based on the receptive field information
+    of the previous layer:
+    :param in_width: the width = height of the output of layer
+    :param in_jump: the distance between two adjacent features in this layer's output
+        (or jump) w.r.t. to the overall network input. For instance, for j=2 the centers of the receptive field
+        of two adjacent pixels in this layer's output have a distance of 2 pixels.
+    :param in_reception: the receptive field extent r
+    :param in_start: the shift of the receptive field
+
+    cf. https://medium.com/mlreview/a-guide-to-receptive-field-arithmetic-for-convolutional-neural-networks-e0f514068807
+    """
+    def __init__(self, kernel_size, in_width, in_jump, in_reception, in_start, img_shape,
+                 stride=None, padding=0, dilation=1,
+                 return_indices=False, ceil_mode=False):
+        super().__init__(kernel_size, stride, padding, dilation, return_indices, ceil_mode)
+        self.set_reception(
+            (in_width + 2 * padding - kernel_size) // stride + 1,
+            in_jump * stride,
+            in_reception + (kernel_size - 1) * in_jump,
+            in_start + ((kernel_size - 1) / 2 - padding) * in_jump,
+            img_shape
+        )
+
+    @property
+    def reception(self):
+        return super().reception
+
+
+class BaseNet(torch.nn.Module, ABC):
+    """ Base class for all networks """
+
+    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+        """
+        :param in_shape: the shape the model expects the input to have (n x c x h x w).
+        :param bias: whether to use bias in the network layers.
+        :param kwargs: further specific parameters. See network architectures.
+        """
+        super().__init__()
+        assert len(in_shape) == 3 and in_shape[1] == in_shape[2]
+        self._in_shape = in_shape
+        self.__bias = bias
 
     @property
     def bias(self):
@@ -40,12 +168,52 @@ class ReceptiveNet(torch.nn.Module):
 
     @property
     def in_shape(self):
-        return self.__in_shape
+        return self._in_shape
+
+    def get_grad_heatmap(self, losses: torch.Tensor, inputs: torch.Tensor, method='grad', absolute=True):
+        """
+        Compute gradient heatmaps of loss w.r.t. to inputs.
+        :param losses: the computed loss of some training iteration for this model.
+        :param input: the inputs that have been used for losses and outputs (n x c x h x w).
+        :param method: whether to return heatmaps based on the pure gradients ('grad') or
+            use the gradients to weight the inputs ('xgrad').
+        :param absolute: whether to take the absolute value as a last step in the computation.
+        """
+        methods = ('grad', 'xgrad')
+        assert method in methods
+        grads = torch.autograd.grad((*losses.view(losses.size(0), -1).mean(-1),), inputs, create_graph=True)[0]
+        if method == 'xgrad':
+            heatmaps = inputs.detach() * grads
+        else:
+            heatmaps = grads
+        if absolute:
+            heatmaps = heatmaps.abs()
+        heatmaps = heatmaps.sum(1, keepdim=True)
+        # heatmaps /= heatmaps.sum((2, 3), keepdim=True)
+        return heatmaps.detach()
+
+
+class ReceptiveNet(BaseNet, ReceptiveModule):
+    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+        """
+        Base class for neural networks that keep track of the receptive field flow, i.e.
+        the receptive field (extent, shift, jump, etc.) can be retrieved at any time via the according property.
+        To be able to keep track, all layers that change the receptive field must be created via
+        the class' methods, i.e._create_conv2d and _create_maxpool2d.
+
+        :param in_shape: the shape the model expects the input to have (n x c x h x w).
+        :param bias: whether to use bias in the network layers.
+        :param kwargs: further specific parameters. See network architectures.
+        """
+        super().__init__(in_shape, bias, **kwargs)
+        self.set_reception(in_shape[1], 1, 1, 0)
+        self.__initial_reception = deepcopy(self.reception)
 
     @property
-    def final_dim(self):
-        return self.__final_dim
+    def reception(self):
+        return super().reception
 
+    @property
     def initial_reception(self):
         return self.__initial_reception
 
@@ -66,223 +234,75 @@ class ReceptiveNet(torch.nn.Module):
             else:
                 pass
 
-    def _create_conv2d(self, in_channels, out_channels, kernel_size,
+    def _create_conv2d(self, in_channels: int, out_channels: int, kernel_size: int,
                        stride=1, padding=0, dilation=1, groups=1,
-                       bias=True, padding_mode='zeros'):
+                       bias=True, padding_mode='zeros') -> RecConv2d:
         """
-        Creates a conv layer with receptional field information based on the current receptional field.
-        WARNING: using this method does only work if all layers are created with such create-methods.
-        If layers, that change the receptive field (e.g. fully connected layers, certain attention layers),
-        are manually appended, the class is not informed about the change of receptive field and
-        thus further layer created by this method will have false receptive field information.
+        Creates a convolutional layer with receptive field information based on the current receptive field of
+        the overall model.
+        WARNING:
+        Using this method does only work if all layers are created with create-methods like this one.
+        If layers that change the receptive field (e.g. fully connected layers, certain attention layers)
+        are manually appended, the model is not informed about the change of receptive field and
+        thus further layers created by this method will have false receptive field information.
         Also, of cause, layers must be used in the order in which they have been created, and must be used exactly once.
+
+        :param in_channels: number of channels in the input image.
+        :param out_channels: number of channels produced by the convolution-
+        :param kernel_size: size of the convolving kernel
+        :param stride: stride of the convolution.
+        :param padding: zero-padding added to both sides of the input.
+        :param dilation: spacing between kernel elements.
+        :param groups: number of blocked connection from input channels to output channels.
+        :param bias: whether to use a bias in the layer.
+        :param padding_mode: accepted values 'zeros' and 'circular'.
+        :return: convolutional layer
         """
+        rec = self.reception
+        n, j, r, s, in_shape = rec['n'], rec['j'], rec['r'], rec['s'], rec['img_shape']
         conv = RecConv2d(
-            in_channels, out_channels, kernel_size, self.__n, self.__j, self.__r, self.__s, self.__in_shape,
+            in_channels, out_channels, kernel_size, n, j, r, s, in_shape,
             stride, padding, dilation, groups, bias, padding_mode
         )
-        self.__n, self.__j, self.__r, self.__s = conv.n, conv.j, conv.r, conv.start
+        rec = conv.reception
+        self.set_reception(rec['n'], rec['j'], rec['r'], rec['s'], rec['img_shape'])
         return conv
 
-    def _create_maxpool2d(self, kernel_size, stride=None, padding=0, dilation=1,
-                          return_indices=False, ceil_mode=False):
+    def _create_maxpool2d(self, kernel_size: int, stride: int = None, padding=0, dilation=1,
+                          return_indices=False, ceil_mode=False) -> RecMaxPool2d:
         """
-        Creates a pool layer with receptional field information based on the current receptional field.
-        WARNING: using this method does only work if all layers are created with such create-methods.
-        If layers, that change the receptive field (e.g. fully connected layers, certain attention layers),
-        are manually appended, the class is not informed about the change of receptive field and
-        thus further layer created by this method will have false receptive field information.
+        Creates a pool layer with receptive field information based on the current receptive field of
+        the overall model.
+        WARNING:
+        Using this method does only work if all layers are created with create-methods like this one.
+        If layers that change the receptive field (e.g. fully connected layers, certain attention layers)
+        are manually appended, the model is not informed about the change of receptive field and
+        thus further layers created by this method will have false receptive field information.
         Also, of cause, layers must be used in the order in which they have been created, and must be used exactly once.
+
+        :param kernel_size: the size of the window to take a max over.
+        :param stride: the stride of the window. Default value is kernel_size.
+        :param padding: implicit zero padding to be added on both sides.
+        :param dilation: a parameter that controls the stride of elements in the window.
+        :param return_indices: whether to return the max indices along with the outputs.
+        :param ceil_mode: whether to use `ceil` instead of `floor` to compute the output shape
+        :return: max pool layer
         """
+        rec = self.reception
+        n, j, r, s, in_shape = rec['n'], rec['j'], rec['r'], rec['s'], rec['img_shape']
         pool = RecMaxPool2d(
-            kernel_size, self.__n, self.__j, self.__r, self.__s, self.__in_shape,
+            kernel_size, n, j, r, s, in_shape,
             stride, padding, dilation, return_indices, ceil_mode
         )
-        self.__n, self.__j, self.__r, self.__s = pool.n, pool.j, pool.r, pool.start
+        rec = pool.reception
+        self.set_reception(rec['n'], rec['j'], rec['r'], rec['s'], rec['img_shape'])
         return pool
 
-    @abstractmethod
-    def get_grad_heatmap(self, losses: torch.Tensor, outputs: torch.Tensor, inputs: torch.Tensor,
-                         method='grad', absolute=True):
-        return None
+
+class FCDDNet(ReceptiveNet):
+    """ Baseclass for FCDD networks, i.e. network without fully connected layers that have a spatial output """
+    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+        super().__init__(in_shape, bias)
 
 
-class SpatialCenterNet(ReceptiveNet):
-    def __init__(self, final_dim, in_shape, bias=False, **kwargs):
-        super().__init__(final_dim, in_shape, bias)
-
-    @abstractmethod
-    def get_heatmap(self, outs, threshold=False, invert=False, reception=True):
-        return None
-
-    def get_grad_heatmap(self, losses: torch.Tensor, outputs: torch.Tensor, inputs: torch.Tensor,
-                         method='grad', absolute=True):
-        """
-        Compute (input x) gradient (saliency) heatmaps of inputs (B x C x H x W) for given network outputs.
-        """
-        methods = ('grad', 'xgrad')
-        assert method in methods
-        grads = torch.autograd.grad((*losses.view(losses.size(0), -1).mean(-1), ), inputs, create_graph=True)[0]
-        if method == 'xgrad':
-            heatmaps = inputs.detach() * grads
-        else:
-            heatmaps = grads
-        if absolute:
-            heatmaps = heatmaps.abs()
-        heatmaps = heatmaps.sum(1, keepdim=True)
-        # heatmaps /= heatmaps.sum((2, 3), keepdim=True)
-        return heatmaps.detach()
-
-
-class ReceptiveModule(torch.nn.Module):
-    @property
-    @abstractmethod
-    def reception(self):
-        pass
-
-    @abstractmethod
-    def get_heatmap(self, pixels, heads=10, threshold=False, invert=False, reception=True):
-        return None
-
-    @property
-    def device(self):
-        return list(self.parameters())[0].device
-
-    def _get_single_head_heatmap(self, pixels, reception=True, std=None, cpu=True):
-        if self.reception is None or any([i not in self.reception for i in ['j', 's', 'r', 'img_shape']]) \
-                or not reception:
-            if reception:
-                self.logger.logtxt(
-                    'Fell back on upsample method for heatmap since reception was not available!', print=True
-                )
-            return self.__upsample_map(pixels)
-        else:
-            cap = 4
-            s = self.__max_memory(pixels)
-            if s > cap:
-                outs = []
-                pixel_splitss = pixels.split(pixels.size(0) // ceil(self.__max_memory(pixels) / cap))
-                print(
-                    'Had to split Receptive Field Upsampling in {} tiles of {} images, '
-                    'because overall it takes {} GB for all {} images..'
-                    .format(len(pixel_splitss), pixel_splitss[0].size(0), s, pixels.size(0))
-                )
-                for n, pixels_split in enumerate(pixel_splitss):
-                    print('Receptive Field Upsampling: Processing tile {}/{}...'.format(n, len(pixel_splitss)))
-                    assert self.__max_memory(pixels_split) <= cap
-                    outs.append(self._receptive_field_map(pixels_split.to(self.device), std))
-                    if cpu:
-                        outs[-1] = outs[-1].cpu()
-                return torch.cat(outs, dim=1)
-            else:
-                out = self._receptive_field_map(pixels.to(self.device), std)
-                return out if not cpu else out.cpu()
-
-    def __max_memory(self, pixels, elemsize=4):
-        # elemsize is the byte size of one element of the tensor, for float32 this is 4
-        assert pixels.dim() == 3  # This considers only one head, i.e. n x ah x aw shape
-        ishape = self.reception['img_shape']
-        r = self.reception['r']
-        s = np.prod((elemsize, pixels.size(0), pixels.size(1), *(i + r // 2 for i in ishape[2:])))  # byte
-        s = s / 1024**3  # gigabyte
-        return s
-
-    def __upsample_map(self, attention_weights, threshold=False, invert=False):
-        assert attention_weights.dim() == 3  # n x ah x aw
-        attention_weights = self.transform_attentions(attention_weights, threshold, invert)
-        res = torch.nn.functional.interpolate(attention_weights[:, None, :, :], self.reception['img_shape'][1:])
-        if self.reception['img_shape'][0] == 3:
-            res = res.repeat(1, 3, 1, 1)  # repeat to 3 channels
-        return res[None, :, :, :, :]  # heads x n x c x h x w
-
-    def _receptive_field_map(self, pixels, std=None):
-        assert pixels.dim() == 3  # This considers only one head, i.e. n x ah x aw shape
-        if self.reception is None:
-            raise ValueError('receptive field is unknown!')
-        ishape = self.reception['img_shape']
-        pixshp = pixels.shape
-        # regarding s: if between pixels, pick the first
-        s, j, r = int(self.reception['s']), self.reception['j'], self.reception['r']
-        gaus = torch.from_numpy(gkern(r, std)).float().to(pixels.device)
-        pad = (r-1)//2
-        if (r-1) % 2 == 0:
-            res = torch.nn.functional.conv_transpose2d(
-                pixels.unsqueeze(1), gaus.unsqueeze(0).unsqueeze(0), stride=j, padding=0,
-                output_padding=ishape[-1] - (pixshp[-1] - 1) * j - 1
-            ).unsqueeze(0)
-        else:
-            res = torch.nn.functional.conv_transpose2d(
-                pixels.unsqueeze(1), gaus.unsqueeze(0).unsqueeze(0), stride=j, padding=0,
-                output_padding=ishape[-1] - (pixshp[-1] - 1) * j - 1 - 1
-            ).unsqueeze(0)
-        return res[:, :, :, pad-s:-pad-s, pad-s:-pad-s]  # shift by receptive center (s)
-
-
-class RecConv2d(torch.nn.Conv2d, ReceptiveModule):
-    """
-    Like super, but keeps track of the receptive field center position and size by
-    processing the receptive field parameters of the previous conv layer:
-    :param in_width: the number of 1D features n, i.e. width = height of the input
-    :param in_jump: the distance between two adjacent features (or jump) j
-    :param in_reception: the receptive field size r
-    :param in_start: the center coordinate of the upper left feature (the first feature) start
-
-    cf. https://medium.com/mlreview/a-guide-to-receptive-field-arithmetic-for-convolutional-neural-networks-e0f514068807
-    """
-    def __init__(self, in_channels, out_channels, kernel_size,
-                 in_width, in_jump, in_reception, in_start, img_shape,
-                 stride=1, padding=0, dilation=1, groups=1,
-                 bias=True, padding_mode='zeros'):
-        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
-        self.n = (in_width + 2 * padding - kernel_size) // stride + 1
-        self.j = in_jump * stride
-        self.r = in_reception + (kernel_size - 1) * in_jump
-        self.start = in_start + ((kernel_size - 1) / 2 - padding) * in_jump
-        self.img_shape = img_shape
-
-    @property
-    def reception(self):
-        return {'n': self.n, 'j': self.j, 'r': self.r, 's': self.start, 'img_shape': self.img_shape}
-
-    def get_heatmap(self, pixel_heads, heads=10, threshold=False, invert=False, reception=True, std=None, cpu=True):
-        # NOTE THAT PIXELS HERE ARE NOT ATTENTION_WEIGHTS BUT THE ACTUAL OUTPUT!
-        if pixel_heads.dim() != 4:  # most likely attention weights have been inputted
-            return None
-        else:
-            n, iheads, ih, iw = pixel_heads.shape
-            heatmap = []
-            pixel_heads = pixel_heads.transpose(0, 1)[:heads]
-            for pixels in pixel_heads:
-                heatmap.append(self._get_single_head_heatmap(pixels, reception, std=std, cpu=cpu))
-            return torch.cat(heatmap).transpose(0, 1)
-
-
-class RecMaxPool2d(torch.nn.MaxPool2d, ReceptiveModule):
-    """
-    Like super, but keeps track of the receptive field center position and size by
-    processing the receptive field parameters of the previous conv layer:
-    :param in_width: the number of 1D features n, i.e. width = height of the input
-    :param in_jump: the distance between two adjacent features (or jump) j
-    :param in_reception: the receptive field size r
-    :param in_start: the center coordinate of the upper left feature (the first feature) start
-
-    cf. https://medium.com/mlreview/a-guide-to-receptive-field-arithmetic-for-convolutional-neural-networks-e0f514068807
-    """
-    def __init__(self, kernel_size, in_width, in_jump, in_reception, in_start, img_shape,
-                 stride=None, padding=0, dilation=1,
-                 return_indices=False, ceil_mode=False):
-        super().__init__(kernel_size, stride, padding, dilation, return_indices, ceil_mode)
-        self.n = (in_width + 2 * padding - kernel_size) // stride + 1
-        self.j = in_jump * stride
-        self.r = in_reception + (kernel_size - 1) * in_jump
-        self.start = in_start + ((kernel_size - 1) / 2 - padding) * in_jump
-        self.img_shape = img_shape
-
-    @property
-    def reception(self):
-        return {'n': self.n, 'j': self.j, 'r': self.r, 's': self.start, 'img_shape': self.img_shape}
-
-    def get_heatmap(self, pixels, heads=10, threshold=False, invert=False, reception=True, cpu=True):
-        attention_weights = pixels.mean(1)  # mean over all channels
-        return self._get_single_head_heatmap(attention_weights, threshold, cpu=cpu)
 

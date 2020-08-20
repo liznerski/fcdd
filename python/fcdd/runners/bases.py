@@ -3,18 +3,26 @@ import os.path as pt
 import re
 import time
 import traceback
-from abc import abstractmethod
 from collections import defaultdict
 from copy import deepcopy
+from argparse import ArgumentParser
 
 from fcdd.datasets import no_classes, str_labels
+from fcdd.runners.argparse_configs import DefaultConfig
 from fcdd.training.setup import trainer_setup
-from fcdd.training.super_trainer import ADTrainer
+from fcdd.training.super_trainer import SuperTrainer
 from fcdd.util.logging import plot_many_roc, time_format
 from fcdd.util.metrics import mean_roc
 
 
-def extract_viz_ids(dir, cls, it):
+def extract_viz_ids(dir: str, cls: str, it: int):
+    """
+    Extracts the indices of images that have been logged in an old experiment.
+    :param dir: directory that contains log data of the old experiment
+    :param cls: class that is considered to be nominal
+    :param it: the iteration (random seed)
+    :return: [(indices for label 0..), (indices for label 1..)]
+    """
     if dir is None:
         return ()
     logfile = pt.join(dir, 'normal_{}'.format(cls), 'it_{}'.format(it), 'log.txt')
@@ -35,14 +43,27 @@ def extract_viz_ids(dir, cls, it):
     return viz_ids
 
 
-NET_TO_HSC = {'SPACEN_CNN224_FCONV': 'CNN224', 'SPACEN_CNN32_FCONV_S': 'CNN32', 'SPACEN_CNN28_FCONV': 'CNN28'}
-DIM_TO_HSC = {49: 48, 64: 64, 784: 784}
+NET_TO_HSC = {'FCDD_CNN224': 'CNN224', 'FCDD_CNN32_S': 'CNN32', 'FCDD_CNN28': 'CNN28'}
+NET_TO_AE = {'FCDD_CNN224': 'AE224', 'FCDD_CNN32_S': 'AE32', 'FCDD_CNN28': 'AE28'}
 
 
 class BaseRunner(object):
-    def __init__(self):
-        # warnings.simplefilter('error', UserWarning)
-        self.args = self.argparse()
+    def __init__(self, config: DefaultConfig):
+        """
+        Basic runner that runs a training for one seed and one specific class considered nominal.
+        To run an experiment, create an instance of the runner with an argument configuration object
+        and invoke the run method.
+        :param config: an argument configuration object that adds all arguments, defined in runners/argparse_configs
+        """
+        self.args = ArgumentParser(
+            description=
+            "Train a neural network module as explained in the `Explainable Deep Anomaly Detection` paper. "
+            "Based on the objective, train either FCDD or one of the baselines presented in the paper, i.e. "
+            "an autoencoder or the HSC objective. Log achieved scores, metrics, plots, and heatmaps "
+            "for both test and training data. "
+        )
+        self.args = config(self.args)
+        self.args = self.args.parse_args()
         if 'logdir_suffix' in vars(self.args):
             self.args.logdir += self.args.logdir_suffix
             del vars(self.args)['logdir_suffix']
@@ -54,20 +75,23 @@ class BaseRunner(object):
         self.run_one(**vars(self.args))
 
     def run_one(
-            self, batch_size, epochs, workers, final_dim, learning_rate, weight_decay,
-            lr_sched_param, load, dataset, net, readme,
-            datadir, normal_class, cuda, objective, logdir, viz_ids=(), **kwargs
+            self, viz_ids: tuple, **kwargs
+            # kwargs should contain all parameters of the setup function in training.setup
     ):
         kwargs = dict(kwargs)
+        readme = kwargs.pop('readme', '')
+        kwargs['log_start_time'] = self.start
+        kwargs['viz_ids'] = viz_ids
+        kwargs['config'] = '{}\n\n{}'.format(json.dumps(kwargs), readme)
         acc_batches = kwargs.pop('acc_batches', 1)
+        epochs = kwargs.pop('epochs')
+        load = kwargs.pop('load', None)
+        kwargs.pop('viz_ids')
         setup = trainer_setup(
-            cuda, dataset, datadir, normal_class, net, final_dim, learning_rate, weight_decay, lr_sched_param, logdir,
-            json.dumps({k: v for k, v in locals().items() if not k.endswith('results') and k not in ['setup', 'self']}),
-            batch_size, workers, objective,
-            self.start, **kwargs
+            **kwargs
         )
         try:
-            trainer = ADTrainer(**setup)
+            trainer = SuperTrainer(**setup)
             trainer.train(epochs, load, acc_batches=acc_batches)
             if self.__test and (epochs > 0 or load is not None):
                 x = trainer.test(viz_ids)
@@ -80,54 +104,32 @@ class BaseRunner(object):
             setup['logger'].log_prints()  # no finally statement, because that breaks debugger
             raise
 
-    @abstractmethod
-    def add_parser_params(self, parser):
-        pass
-
-    def argparse(self, f_trans_args=None):
-        from fcdd.util.argparse import ArgumentParser
-        from fcdd.runners import Maintainer
-        parser = ArgumentParser(description=__doc__)
-
-        parser = self.add_parser_params(parser)
-
-        if f_trans_args is not None:
-            f_trans_args(parser)
-
-        args = parser.parse_args()
-
-        return Maintainer(
-            args,
-        )
-
     def get_base_logdir(self):
+        """ returns the actualy log directory """
         return self.args.logdir.replace('{t}', time_format(self.start))
 
     def arg_to_ae(self, backup=True, restore=True):
+        """ transfers a part of the parameters to train an autoencoder instead, with reconstruction loss heatmaps """
         if restore:
             self.restore_args()
         if backup:
             self.backup_args()
-        self.args.net = NET_TO_HSC[self.args.net]
-        self.args.final_dim = DIM_TO_HSC[self.args.final_dim]
+        self.args.net = NET_TO_AE[self.args.net]
         self.args.objective = 'autoencoder'
         self.args.supervise_mode = 'unsupervised'
-        if self.args.objective_params is None:
-            self.args.objective_params = {}
-        self.args.objective_params['heatmaps'] = None
+        self.args.blur_heatmaps = True
         self.args.viz_ids = self.get_base_logdir()
         self.args.logdir += '_AE'
 
     def arg_to_hsc(self, backup=True, restore=True):
+        """ transfers a part of the parameters to train the HSC objective instead, with gradient heatmaps """
         if restore:
             self.restore_args()
         if backup:
             self.backup_args()
         self.args.net = NET_TO_HSC[self.args.net]
-        self.args.objective = 'hard_boundary'
-        if self.args.objective_params is None:
-            self.args.objective_params = {}
-        self.args.objective_params['heatmaps'] = 'grad'
+        self.args.objective = 'hsc'
+        self.args.blur_heatmaps = True
         self.args.viz_ids = self.get_base_logdir()
         self.args.logdir += '_HSC'
 
@@ -142,28 +144,32 @@ class BaseRunner(object):
 
 
 class SeedsRunner(BaseRunner):
+    """
+    Runner that runs a training for multiple random seeds and one specific class considered nominal.
+    Also, creates a combined AuROC graph that contains curves for all seeds at once.
+    The log directory will contain the combined graph and a subdirectory for each seed.
+    The subdirectories are named `it_x`, with x being the number of the seed
+    (e.g. 2 for the second seed/training_iteration).
+    """
     def run(self):
         self.run_seeds(**vars(self.args))
 
     def run_seeds(
-            self, batch_size, epochs, workers, final_dim, learning_rate, weight_decay,
-            lr_sched_param, load, dataset, net, readme,
-            datadir, normal_class, cuda, objective, it, logdir, **kwargs
+            self, it: int, **kwargs
     ):
         results = defaultdict(lambda: [])
         kwargs = dict(kwargs)
+        logdir = kwargs.pop('logdir')
+        viz_ids = kwargs.pop('viz_ids')
         its = range(it)
-        if 'restrict_its' in kwargs:
-            its = kwargs['restrict_its'] if kwargs['restrict_its'] is not None else its
-            del kwargs['restrict_its']
+        if 'its_restrictions' in kwargs:
+            its = kwargs['its_restrictions'] if kwargs['its_restrictions'] is not None else its
+            del kwargs['its_restrictions']
         for i in its:
-            this_logdir = pt.join(logdir, 'it_{}'.format(i))
-            viz_ids = extract_viz_ids(self.args.viz_ids, normal_class, i)
+            kwargs['logdir'] = pt.join(logdir, 'it_{}'.format(i))
+            this_viz_ids = extract_viz_ids(viz_ids, kwargs['normal_class'], i)
             res = self.run_one(
-                batch_size, epochs, workers, final_dim, learning_rate, weight_decay,
-                lr_sched_param, load, dataset, net, readme,
-                datadir, normal_class, cuda, objective, this_logdir, viz_ids=viz_ids,
-                **{k: v for k, v in kwargs.items() if k not in ['viz_ids']}
+                this_viz_ids, **kwargs
             )
             for key in res:
                 results[key].append(res[key])
@@ -174,54 +180,42 @@ class SeedsRunner(BaseRunner):
             )
         return {key: mean_roc(results[key]) for key in results}
 
-    @abstractmethod
-    def add_parser_params(self, parser):
-        pass
-
-    def copy_files_to_super(self, *names):
-        import os
-        from shutil import copyfile
-        sup = self.get_base_logdir()
-        for (root, dirs, files) in os.walk(sup):
-            for name in names:
-                if name in files:
-                    src = os.path.join(root, name)
-                    dst = os.path.join(sup, root.replace(sup, '')[1:].replace(os.sep, '___') + '___' + name)
-                    copyfile(src, dst)
-                    print('Copied {} to super.'.format(os.path.basename(dst)))
-
 
 class ClassesRunner(SeedsRunner):
+    """
+    Runner that runs multiple trainings with different seeds for each class of the dataset considered nominal.
+    Also, creates a combined AUC graph that contains curves for all classes at once.
+    The log directory will contain the combined graph and a subdirectory for each class.
+    The subdirectories are named `normal_x`, with x being the class id.
+    Each class directory will further contain combined roc curves for all seeds and a subdirectory for each seed.
+    """
     def run(self):
         self.run_classes(**vars(self.args))
 
     def run_classes(
-            self, batch_size, epochs, workers, final_dim, learning_rate, weight_decay,
-            lr_sched_param, load, dataset, net, readme, datadir, cuda, objective, it,
-            logdir, **kwargs
+            self, **kwargs
     ):
         results = defaultdict(lambda: [])
         kwargs = dict(kwargs)
-        classes = range(no_classes(dataset))
+        it = kwargs.pop('it')
+        logdir = kwargs['logdir']
+        classes = range(no_classes(kwargs['dataset']))
         if 'cls_restrictions' in kwargs:
             classes = kwargs['cls_restrictions'] if kwargs['cls_restrictions'] is not None else classes
             del kwargs['cls_restrictions']
         for c in classes:
             cls_logdir = pt.join(logdir, 'normal_{}'.format(c))
+            kwargs['logdir'] = cls_logdir
+            kwargs['normal_class'] = c
             res = self.run_seeds(
-                batch_size, epochs, workers, final_dim, learning_rate, weight_decay,
-                lr_sched_param, load, dataset, net, readme,
-                datadir, c, cuda, objective, it, cls_logdir, **kwargs
+               it, **kwargs
             )
             for key in res:
                 results[key].append(res[key])
         for key in results:
             plot_many_roc(
                 logdir.replace('{t}', time_format(self.start)), results[key],
-                labels=str_labels(dataset), mean=True, name=key
+                labels=str_labels(kwargs['dataset']), mean=True, name=key
             )
         return {key: mean_roc(results[key]) for key in results}
 
-    @abstractmethod
-    def add_parser_params(self, parser):
-        pass

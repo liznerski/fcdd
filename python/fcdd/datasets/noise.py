@@ -2,28 +2,28 @@ import numpy as np
 import torch
 from kornia import gaussian_blur2d
 from scipy import signal
-from skimage.filters import gaussian as gblur
 from skimage.transform import rotate as im_rotate
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
-def floor(x):
+def floor(x: float):
     return int(np.floor(x))
 
 
-def salt_and_pepper(size, p=0.5):
+def salt_and_pepper(size: torch.Size, p=0.5):
     return (torch.rand(size) < p).float()
 
 
-def kernel_size_to_std(k):
+def kernel_size_to_std(k: int):
+    """ Returns a standard deviation value for a Gaussian kernel based on its size """
     return np.log10(0.45*k + 1) + 0.25 if k < 20 else 10
 
 
-def gkern(k, std=None):
-    """Returns a 2D Gaussian kernel array with given kernel size k and std std"""
+def gkern(k: int, std: float = None):
+    "" "Returns a 2D Gaussian kernel array with given kernel size k and std std """
     if std is None:
         std = kernel_size_to_std(k)
     elif isinstance(std, str):
@@ -40,8 +40,33 @@ def gkern(k, std=None):
     return gkern2d
 
 
-def confetti_noise(size, p=0.01, blobshaperange=((3, 3), (5, 5)), fillval=1.0, backval=0.0, ensureblob=True, awgn=0.0,
-                   clamp=False, onlysquared=True, rotation=0, colored=False):
+def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int), (int, int)) = ((3, 3), (5, 5)),
+                   fillval: float = 1.0, backval: float = 0.0, ensureblob: bool = True, awgn: float = 0.0,
+                   clamp: bool = False, onlysquared: bool = True, rotation: int = 0,
+                   colored: bool = False) -> torch.Tensor:
+    """
+    Generates "confetti" noise, as seen in the paper.
+    The noise is based on sampling randomly many rectangles (in the following called blobs) at random positions.
+    Additionally, all blobs are of random size (within some range), of random rotation, and of random color.
+    The color is randomly chosen per blob, thus consistent within one blob.
+    :param size: size of the overall noise image(s), should be (n x h x w) or (n x c x h x w), i.e.
+        number of samples, channels, height, width. Blobs are grayscaled for (n x h x w) or c == 1.
+    :param p: the probability of inserting a blob per pixel.
+        The average number of blobs in the image is p * h * w.
+    :param blobshaperange: limits the random size of the blobs. For ((h0, h1), (w0, w1)), all blobs' width
+        is ensured to be in {w0, ..., w1}, and height to be in {h0, ..., h1}.
+    :param fillval: if the color is not randomly chosen (see colored parameter), this sets the color of all blobs.
+        This is also the maximum value used for clamping (see clamp parameter).
+    :param backval: the background pixel value, i.e. the color of pixels in the noise image that are not part
+         of a blob.
+    :param ensureblob: whether to ensure that there is at least one blob per noise image.
+    :param awgn: amount of additive white gaussian noise added to all blobs.
+    :param clamp: whether to clamp all noise image to the pixel value range (backval, fillval).
+    :param onlysquared: whether to restrict the blobs to be squares only.
+    :param rotation: the maximum amount of rotation (in degrees)
+    :param colored: whether the color of the blobs is randomly chosen.
+    :return: torch tensor containing n noise images. Either (n x c x h x w) or (n x h x w), depending on size.
+    """
     assert len(size) == 4 or len(size) == 3, 'size must be n x c x h x w'
     if isinstance(blobshaperange[0], int) and isinstance(blobshaperange[1], int):
         blobshaperange = (blobshaperange, blobshaperange)
@@ -122,7 +147,16 @@ def confetti_noise(size, p=0.01, blobshaperange=((3, 3), (5, 5)), fillval=1.0, b
     return res
 
 
-def colorize_noise(img, color_min=(-255, -255, -255), color_max=(255, 255, 255), p=1):
+def colorize_noise(img: torch.Tensor, color_min: (int, int, int) = (-255, -255, -255),
+                   color_max: (int, int, int) = (255, 255, 255), p: float = 1) -> torch.Tensor:
+    """
+    Colorizes given noise images by asserting random color values to pixels that are not black (zero).
+    :param img: torch tensor (n x c x h x w)
+    :param color_min: limit the random color to be greater than this rgb value
+    :param color_max: limit the random color to be less than this rgb value
+    :param p: the chance to change the color of a pixel, on average changes p * h * w many pixels.
+    :return: colorized images
+    """
     assert 0 <= p <= 1
     orig_img = img.clone()
     if len(set(color_min)) == 1 and len(set(color_max)) == 1:
@@ -140,7 +174,15 @@ def colorize_noise(img, color_min=(-255, -255, -255), color_max=(255, 255, 255),
     return img
 
 
-def smooth_noise(img, ksize, std, p=1.0, inplace=True):
+def smooth_noise(img: torch.Tensor, ksize: int, std: float, p: float = 1.0, inplace: bool = True) -> torch.Tensor:
+    """
+    Smoothens (blurs) the given noise images with a Gaussian kernel.
+    :param img: torch tensor (n x c x h x w).
+    :param ksize: the kernel size used for the Gaussian kernel.
+    :param std: the standard deviation used for the Gaussian kernel.
+    :param p: the chance smoothen an image, on average smoothens p * n images.
+    :param inplace: whether to apply the operation inplace.
+    """
     if not inplace:
         img = img.clone()
     ksize = ksize if ksize % 2 == 1 else ksize - 1
@@ -150,17 +192,7 @@ def smooth_noise(img, ksize, std, p=1.0, inplace=True):
     return img
 
 
-def gauscolor(size, p=0.7):
-    assert len(size) == 4, 'size must be n x c x h x w'
-    img = np.float32(np.random.binomial(n=1, p=p, size=size))
-    img = img.transpose(0, 2, 3, 1)  # nchw -> nhwc
-    for i, pic in enumerate(img):
-        img[i] = gblur(pic, sigma=1.5, multichannel=False)
-    img[img < 0.75] = 0.0
-    img = torch.from_numpy(img.transpose((0, 3, 1, 2)))
-    return img
-
-
-def solid(size):
+def solid(size: torch.Size):
+    """ Returns noise images in form of solid colors, i.e. one randomly chosen color per image. """
     assert len(size) == 4, 'size must be n x c x h x w'
     return torch.randint(0, 256, (size[:-2]))[:, :, None, None].repeat(1, 1, size[-2], size[-1]).byte()

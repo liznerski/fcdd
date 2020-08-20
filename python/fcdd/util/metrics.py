@@ -1,20 +1,22 @@
 import numpy as np
 
 
-def mean_roc(results):
+def mean_roc(results: dict):
     """
-    Expecting result to be a result dictionary of the following form: {
-        'tpr': [], 'fpr': [], 'ths': [], 'auc': int, ...
-    }
-    tpr and fpr might also be named prec and recall..
-    :return: mean of all aucs in form of a result dictionary
+    This computes a "mean" of multiple ROCs. While the mean of the AuROC is precise,
+    the mean curve is rather an approximation.
+    :param results:
+        Result dictionary of the following form: {
+            'tpr': [], 'fpr': [], 'ths': [], 'auc': int, ...
+        }
+    :return: mean of all ROCs in form of another result dictionary
     """
     if results is None or any([r is None for r in results]) or len(results) == 0:
         return None
     results = results.copy()
     tpr, fpr, ths, auc = [], [], [], []
-    x = 'fpr' if 'fpr' in results[0] else 'recall'
-    y = 'tpr' if 'tpr' in results[0] else 'prec'
+    x = 'fpr'
+    y = 'tpr'
     for res in results:
         try:
             tpr.append(res[y].tolist())

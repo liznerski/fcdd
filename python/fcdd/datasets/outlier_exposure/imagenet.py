@@ -10,19 +10,31 @@ import torchvision.datasets
 import torchvision.transforms as transforms
 from PIL import UnidentifiedImageError
 from fcdd.datasets.confs.imagenet1k_classes import IMAGENET1k_CLS_STR
-from fcdd.util import imsave
+from fcdd.util.logging import Logger
 from torch.utils.data import DataLoader
 from torchvision.datasets import DatasetFolder
 from torchvision.datasets.folder import has_file_allowed_extension, default_loader, IMG_EXTENSIONS
 from torchvision.datasets.vision import StandardTransform
 
 
-def ceil(x):
+def ceil(x: float):
     return int(np.ceil(x))
 
 
 class OEImageNet(torchvision.datasets.ImageNet):
-    def __init__(self, size, root=None, split='val', limit_var=1000000000, exclude=()):  # split = Train
+    def __init__(self, size: torch.Size, root: str = None, split='val', limit_var: int = np.infty, exclude: [str] = ()):
+        """
+        Outlier Exposure dataset for ImageNet.
+        :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
+            number of samples available in ImageNet, dataset will be enlarged by repetitions to fit n.
+            This is important as exactly n images are extracted per iteration of the data_loader.
+            For online supervision n should be set to 1 because only one sample is extracted at a time.
+        :param root: root directory where data is found or is to be downloaded to.
+        :param split: The dataset split, supports ``train``, or ``val``.
+        :param limit_var: limits the number of different samples, i.e. randomly chooses limit_var many samples.
+            from all available ones to be the training data.
+        :param exclude: all class names that are to be excluded.
+        """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
         assert StrictVersion(torchvision.__version__) >= StrictVersion('0.5.0')
@@ -67,29 +79,11 @@ class OEImageNet(torchvision.datasets.ImageNet):
 
         return sample
 
-    def show(self, k=4):
-        tars = sorted(set([self.targets[i] for i in self.picks]))
-        tim = []
-        for t in tars:
-            limg = []
-            idx = (torch.from_numpy(np.asarray(self.targets))[self.picks] == t).nonzero()[:k]
-            for i in idx:
-                limg.append(self[i])
-            tim.append(torch.stack(limg))
-        tim = torch.cat(tim)
-        import pprint
-        pprint.pprint(tars)
-        for i in range(tim.size(0) // k):
-            imsave(
-                tim[i*k:i*k+k], 'imagenet1k_voc_reduced_view/{}_{}.png'.format(tars[i], IMAGENET1k_CLS_STR[tars[i]]),
-                nrow=k
-            )
-
 
 class MyImageFolder(DatasetFolder):
     """
-    Reimplements init and make_dataset. The only change is to add print lines for feedback, because
-    make_dataset takes more than an hour...
+    Reimplements __init__() and make_dataset().
+    The only change is to add print lines to have some feedback because make_dataset might take some time...
     """
     def __init__(self, root, transform=None, target_transform=None, is_valid_file=None, logger=None):
         if isinstance(root, torch._six.string_classes):
@@ -200,7 +194,19 @@ class MyImageNet22K(MyImageFolder):
     ]
     imagenet1k_idxs = [idx for name, idx in imagenet1k_pairs]
 
-    def __init__(self, root, size, exclude_imagenet1k=True, *args, **kwargs):
+    def __init__(self, root: str, size: torch.Size, exclude_imagenet1k=True, *args, **kwargs):
+        """
+        Implements a torchvision style ImageNet22k dataset.
+        The dataset needs to be downloaded manually and put in the according directory.
+        Since the dataset is very large, it happens that some of the image files are broken.
+        In this case, a warning is logged during training and a black image is returned instead.
+        :param root: root directory where data is found.
+        :param size: size of images in (n x c x h x w), c x h x w are used to create black images to be returned
+            by the __getitem__ method in case of broken image files.
+        :param exclude_imagenet1k: whether to include or regular ImageNet classes.
+        :param args: see :class:`torchvision.DatasetFolder`.
+        :param kwargs: see :class:`torchvision.DatasetFolder`.
+        """
         super(MyImageNet22K, self).__init__(root, *args, **kwargs)
 
         self.exclude_imagenet1k = exclude_imagenet1k
@@ -210,8 +216,9 @@ class MyImageNet22K(MyImageFolder):
         if exclude_imagenet1k:
             self.samples = [s for s in self.samples if not any([idx in s[0] for idx in self.imagenet1k_idxs])]
 
-    def __getitem__(self, index):
-        """Override the original method of the ImageFolder class to catch some errors (seems like a few of the 22k
+    def __getitem__(self, index: int) -> (torch.Tensor, int):
+        """
+        Override the original method of the ImageFolder class to catch some errors (seems like a few of the 22k
         images are broken).
         :return tuple: (sample, target)
         """
@@ -237,25 +244,30 @@ class MyImageNet22K(MyImageFolder):
 
 
 class OEImageNet22k(MyImageNet22K):
-    def __init__(self, size, root=None, limit_var=1000000000, augment=False, logger=None):  # split = Train
+    def __init__(self, size: torch.Size, root: str = None, limit_var=np.infty, logger: Logger = None):
+        """
+        Outlier Exposure dataset for ImageNet22k.
+        :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
+            number of samples available in ImageNet22k, dataset will be enlarged by repetitions to fit n.
+            This is important as exactly n images are extracted per iteration of the data_loader.
+            For online supervision n should be set to 1 because only one sample is extracted at a time.
+        :param root: root directory where data is found or is to be downloaded to.
+        :param limit_var: limits the number of different samples, i.e. randomly chooses limit_var many samples.
+            from all available ones to be the training data.
+        :param logger: logger
+        """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
         assert StrictVersion(torchvision.__version__) >= StrictVersion('0.5.0')
-        assert not augment, 'Need to fix size in MyImageNet22k for this, as it expects size to be the raw size...'
         root = pt.join(root, 'imagenet22k') if not root.endswith('imagenet') else pt.join(root, '..', 'imagenet22k')
         root = pt.join(root, 'fall11_whole_extracted')  # important to have a second layer, to speed up load meta file
         self.root = root
-        self.augment = augment
         self.logger = logger
         with logger.timeit('Loading ImageNet22k'):
             super().__init__(root=root, size=size, logger=logger)
 
-        tnon = transforms.Lambda(lambda x: x)
         self.transform = transforms.Compose([
-            transforms.Resize(int(size[2] * 1.15)) if augment else transforms.Resize(size[2]),
-            transforms.ColorJitter(brightness=0.01, contrast=0.01, saturation=0.01, hue=0.01) if augment else tnon,
-            transforms.RandomHorizontalFlip(p=0.5) if augment else tnon,
-            transforms.RandomCrop(size[2]) if augment else tnon,
+            transforms.Resize(size[2]),
             transforms.ToTensor()
         ])
         self.picks = None

@@ -7,12 +7,14 @@ from fcdd.datasets.offline_superviser import noise as apply_noise, malformed_nor
 from fcdd.datasets.preprocessing import get_target_label_idx
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
+from torch.utils.data.dataset import Dataset
+from fcdd.util.logging import Logger
 
 
 class BaseADDataset(ABC):
-    """Anomaly detection dataset base class."""
+    """ Anomaly detection dataset base class """
 
-    def __init__(self, root: str, logger=None):
+    def __init__(self, root: str, logger: Logger = None):
         super().__init__()
         self.root = root  # root path to data
 
@@ -31,13 +33,14 @@ class BaseADDataset(ABC):
     @abstractmethod
     def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0) -> (
             DataLoader, DataLoader):
-        """Implement data loaders of type torch.utils.data.DataLoader for train_set and test_set."""
+        """ Implement data loaders of type torch.utils.data.DataLoader for train_set and test_set. """
         pass
 
     def __repr__(self):
         return self.__class__.__name__
 
-    def logprint(self, s, fps=False):
+    def logprint(self, s: str, fps: bool = False):
+        """ prints a string via the logger """
         if self.logger is not None:
             self.logger.print(s, fps)
         else:
@@ -45,7 +48,7 @@ class BaseADDataset(ABC):
 
 
 class TorchvisionDataset(BaseADDataset):
-    """TorchvisionDataset class for datasets already implemented in torchvision.datasets."""
+    """ TorchvisionDataset class for datasets already implemented in torchvision.datasets """
 
     @property
     def train_set(self):
@@ -55,35 +58,36 @@ class TorchvisionDataset(BaseADDataset):
     def test_set(self):
         return self._test_set
 
-    def get_train_set(self, classes=None):
-        if classes is not None and len(classes) > 0:
-            labels = self.train_set.targets.clone().data.cpu().numpy()
-            idx = np.argwhere(np.isin(labels, classes)).flatten().tolist()
-            ret = Subset(self.train_set, idx)
-        else:
-            ret = self.train_set
-        return ret
-
     def __init__(self, root: str, logger=None):
         super().__init__(root, logger=logger)
 
-    def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0, classes=None) -> (
-            DataLoader, DataLoader):
+    def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0)\
+            -> (DataLoader, DataLoader):
         assert not shuffle_test, \
             'using shuffled test raises problems with original GT maps for GT datasets, thus disabled atm!'
         # classes = None means all classes
-        train_loader = DataLoader(dataset=self.get_train_set(classes), batch_size=batch_size, shuffle=shuffle_train,
+        train_loader = DataLoader(dataset=self.train_set, batch_size=batch_size, shuffle=shuffle_train,
                                   num_workers=num_workers, pin_memory=True)
         test_loader = DataLoader(dataset=self.test_set, batch_size=batch_size, shuffle=shuffle_test,
                                  num_workers=num_workers, pin_memory=True,)
         return train_loader, test_loader
 
-    def preview(self, percls=20, train=True):
+    def preview(self, percls=20, train=True) -> torch.Tensor:
+        """
+        Generates a preview of the dataset, i.e. it generates an image of some randomly chosen outputs
+        of the dataloader, including ground-truth maps if available.
+        The data samples already have been augmented by the preprocessing pipeline.
+        This method is useful to have an overview of how the preprocessed samples look like and especially
+        to have an early look at the artificial anomalies.
+        :param percls: how many samples are shown per class, i.e. for anomalies and nominal samples each
+        :param train: whether to show training samples or test samples
+        :return: a Tensor of images (n x c x h x w)
+        """
         self.logprint('Generating dataset preview...')
         if train:
-            loader, _ = self.loaders(20, num_workers=4)
+            loader, _ = self.loaders(20, num_workers=4, shuffle_train=True)
         else:
-            _, loader = self.loaders(20, num_workers=4)
+            _, loader = self.loaders(20, num_workers=4, shuffle_test=True)
         all_x, all_y, all_gts, out = [], [], [], []
         if isinstance(self.train_set, GTMapADDataset):
             for x, y, gts in loader:
@@ -105,19 +109,25 @@ class TorchvisionDataset(BaseADDataset):
         self.logprint('Dataset preview generated.')
         return torch.cat(out)
 
-    def _generate_artificial_anomalies_train_set(self, supervise_mode, supervise_params, train_set, nom_class):
+    def _generate_artificial_anomalies_train_set(self, supervise_mode: str, noise_mode: str, oe_limit: int,
+                                                 train_set: Dataset, nom_class: int):
         """
-        Method to generate offline anomalies, i.e. generate them once at the start of the training and add
-        it to the train set. This is way faster, but lacks diversity.
-        :param supervise_mode: generate anomalies based on mode,
-            unsupervised: no anomalies
+        This method generates offline artificial anomalies,
+        i.e. it generates them once at the start of the training and adds them to the training set.
+        It creates a balanced dataset, thus sampling as many anomalies as there are nominal samples.
+        This is way faster than online generation, but lacks diversity (hence usually weaker performance).
+        :param supervise_mode: the type of generated artificial anomalies.
+            unsupervised: no anomalies, returns a subset of the original dataset containing only nominal samples.
             other: other classes, i.e. all the true anomalies!
-            noise: pure noise images
-            malformed_normal: add noise to nominal samples
-            malformed_normal_gt: add noise to nominal samples and store positions in an artificial ground-truth map
-        :param supervise_params:
-        :param train_set:
-        :param nom_class:
+            noise: pure noise images (can also be outlier exposure based).
+            malformed_normal: add noise to nominal samples to create malformed nominal anomalies.
+            malformed_normal_gt: like malformed_normal, but also creates artificial ground-truth maps
+                that mark pixels anomalous where the difference between the original nominal sample
+                and the malformed one is greater than a low threshold.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: the number of different outlier exposure samples used in case of outlier exposure based noise.
+        :param train_set: the training set that is to be extended with artificial anomalies.
+        :param nom_class: the class considered nominal
         :return:
         """
         if isinstance(train_set.targets, torch.Tensor):
@@ -129,7 +139,7 @@ class TorchvisionDataset(BaseADDataset):
         if supervise_mode not in ['unsupervised', 'other']:
             self.logprint('Generating artificial anomalies...')
             generated_noise = self._generate_noise(
-                supervise_params.get('noise_mode', None), train_set.data[train_idx_normal].shape, supervise_params,
+                noise_mode, train_set.data[train_idx_normal].shape, oe_limit,
                 self.root
             )
             norm = train_set.data[train_idx_normal]
@@ -141,29 +151,33 @@ class TorchvisionDataset(BaseADDataset):
             else:
                 self._train_set = Subset(train_set, train_idx_normal)
         elif supervise_mode in ['noise']:
-            self._train_set = apply_noise(self, generated_noise, norm, nom_class, train_set)
+            self._train_set = apply_noise(self.outlier_classes, generated_noise, norm, nom_class, train_set)
         elif supervise_mode in ['malformed_normal']:
-            self._train_set = apply_malformed_normal(self, generated_noise, norm, nom_class, train_set)
+            self._train_set = apply_malformed_normal(self.outlier_classes, generated_noise, norm, nom_class, train_set)
         elif supervise_mode in ['malformed_normal_gt']:
-            train_set, gtmaps = apply_malformed_normal(self, generated_noise, norm, nom_class, train_set, gt=True)
+            train_set, gtmaps = apply_malformed_normal(
+                self.outlier_classes, generated_noise, norm, nom_class, train_set, gt=True
+            )
             self._train_set = GTMapADDatasetExtension(train_set, gtmaps)
         else:
             raise NotImplementedError('Supervise mode {} unknown.'.format(supervise_mode))
         if supervise_mode not in ['unsupervised', 'other']:
             self.logprint('Artificial anomalies generated.')
 
-    def _generate_noise(self, noise_mode, size, params=None, datadir=None):
-        generated_noise = generate_noise(noise_mode, size, params, logger=self.logger, datadir=datadir)
+    def _generate_noise(self, noise_mode: str, size: torch.Size, oe_limit: int = None, datadir: str = None):
+        generated_noise = generate_noise(noise_mode, size, oe_limit, logger=self.logger, datadir=datadir)
         return generated_noise
 
 
-class ThreeReturnsDataset(object):
+class ThreeReturnsDataset(Dataset):
+    """ Dataset base class returning a tuple of three items as data samples """
     @abstractmethod
     def __getitem__(self, index):
         return None, None, None
 
 
 class GTMapADDataset(ThreeReturnsDataset):
+    """ Dataset base class returning a tuple (input, label, ground-truth map) as data samples """
     @abstractmethod
     def __getitem__(self, index):
         x, y, gtmap = None, None, None
@@ -171,17 +185,23 @@ class GTMapADDataset(ThreeReturnsDataset):
 
 
 class GTSubset(Subset, GTMapADDataset):
+    """ Subset base class for GTMapADDatasets """
     pass
 
 
 class GTMapADDatasetExtension(GTMapADDataset):
     """
-    Given a dataset, uses the dataset to return tuples per its __getitem__, but adds a last item gtmaps[idx] to it
-    :param overwrite:
-        If dataset is already a GTMapADDataset itself, determines if gtmaps of dataset shall be overwritten.
-        None values of found gtmaps in dataset are overwritten in any case.
+    This class is used to extend a regular torch dataset such that is returns the corresponding ground-truth map
+    in addition to the usual (input, label) tuple.
     """
-    def __init__(self, dataset, gtmaps, overwrite=True):
+    def __init__(self, dataset: Dataset, gtmaps: torch.Tensor, overwrite=True):
+        """
+        :param dataset: a regular torch dataset
+        :param gtmaps: a tensor of ground-truth maps (n x h x w)
+        :param overwrite: if dataset is already a GTMapADDataset itself,
+            determines if gtmaps of dataset shall be overwritten.
+            None values of found gtmaps in dataset are overwritten in any case.
+        """
         self.ds = dataset
         self.extended_gtmaps = gtmaps
         self.overwrite = overwrite
@@ -200,9 +220,6 @@ class GTMapADDatasetExtension(GTMapADDataset):
         return self.ds.data
 
     def __getitem__(self, index):
-        """
-        Adds a third return, the ground truth map, to the return of standard mnist dataset.
-        """
         gtmap = self.extended_gtmaps[index]
 
         if isinstance(self.ds, GTMapADDataset):

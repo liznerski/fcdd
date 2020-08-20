@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.preprocessing import MultiCompose
+from fcdd.util.logging import Logger
 from torchvision.datasets import VOCDetection
 
 if sys.version_info[0] == 2:
@@ -15,23 +16,35 @@ else:
 
 
 class ADPascalVoc(TorchvisionDataset):
-
-    def __init__(self, root: str, normal_class=0, preproc='ae',
-                 supervise_mode='unsupervised', supervise_params=None, logger=None):
+    def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
+                 supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool, logger: Logger = None):
+        """
+        AD dataset for PascalVoc. Considers only the "horse" class, thus normal_class must be 0!
+        :param root: root directory where data is found or is to be downloaded to
+        :param normal_class: the class considered nominal
+        :param preproc: the kind of preprocessing pipeline
+        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param supervise_mode: the type of generated artificial anomalies.
+            See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
+        :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
+        :param oe_limit: limits the number of different anomalies in case of Outlier Exposure (defined in noise_mode)
+        :param online_supervision: whether to sample anomalies online in each epoch,
+            or offline before training (same for all epochs in this case)
+        :param logger: logger
+        """
         super().__init__(root, logger=logger)
         assert normal_class == 0, 'One cls dataset with horse only!'
         if supervise_mode != 'unsupervised':
-            assert supervise_params.get('online', True), \
-                'ImageNet artificial anomaly generation needs to be applied online'
-        supervise_params.update({'exclude_for_voc': MyPascalVoc.NAMES})
+            assert online_supervision, 'PascalVoc artificial anomaly generation needs to be applied online'
 
         self.n_classes = 2  # 0: normal, 1: outlier
         self.shape = (3, 224, 224)
         self.raw_shape = (3, 224, 224)
         self.outlier_classes = list(range(0, 10))
         self.outlier_classes.remove(normal_class)
-        assert supervise_params.get('nominal_label', 0) in [0, 1]
-        self.nominal_label = supervise_params.get('nominal_label', 0)
+        assert nominal_label in [0, 1]
+        self.nominal_label = nominal_label
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
         self.normal_classes = tuple([self.nominal_label])
 
@@ -65,10 +78,14 @@ class ADPascalVoc(TorchvisionDataset):
                 transforms.Normalize(mean, std)
             ])
         else:
-            raise ValueError('Preprocessing set {} is not known.'.format(preproc))
+            raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
-        if supervise_params['online']:
-            all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, supervise_params), *all_transform])
+        if online_supervision:
+            all_transform = MultiCompose([
+                # in case of OutlierExposure with ImageNet, exclude VOC names from classes!
+                OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit, exclude=MyPascalVoc.NAMES),
+                *all_transform
+            ])
         else:
             all_transform = MultiCompose(all_transform)
 
@@ -76,8 +93,8 @@ class ADPascalVoc(TorchvisionDataset):
                                 transform=transform, all_transform=all_transform, anomlbl=self.anomalous_label)
 
         self._generate_artificial_anomalies_train_set(
-            supervise_mode if not supervise_params['online'] else 'unsupervised',
-            supervise_params, train_set, normal_class
+            supervise_mode if not online_supervision else 'unsupervised',
+            noise_mode, oe_limit, train_set, normal_class
         )
 
         self._test_set = MyPascalVoc(root=self.root, split='val', download=True, nominal_label=self.nominal_label,
@@ -85,6 +102,7 @@ class ADPascalVoc(TorchvisionDataset):
 
 
 class MyPascalVoc(VOCDetection):
+    """ PascalVoc dataset extension, s.t. target_transform and online superviser is applied """
     NAMES = [
         'person', 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep', 'aeroplane', 'bicycle', 'boat', 'bus',
         'car', 'motorbike', 'train', 'bottle', 'chair', 'table', 'plant', 'sofa', 'tv', 'monitor'
