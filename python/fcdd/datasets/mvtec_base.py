@@ -3,6 +3,7 @@ import os
 import tarfile
 import tempfile
 import zipfile
+import shutil
 
 import numpy as np
 import torch
@@ -197,6 +198,12 @@ class MvTec(VisionDataset, GTMapADDataset):
                 self.data_file if shape is not None else self.orig_data_file(cls)
             )
 
+            # cleanup temp directory
+            for dirpath, dirnames, filenames in os.walk(tmp_dir):
+                os.chmod(dirpath, 0o755)
+                for filename in filenames:
+                    os.chmod(os.path.join(dirpath, filename), 0o755)
+            shutil.rmtree(tmp_dir)
         else:
             print('Files already downloaded.')
             return
