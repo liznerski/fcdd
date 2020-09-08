@@ -81,7 +81,7 @@ class DefaultConfig(object):
         )
         parser.add_argument('-d', '--dataset', type=str, default='mvtec', choices=DS_CHOICES)
         parser.add_argument(
-            '-n', '--net', type=str, default='FCDD_CNN224', choices=choices(),
+            '-n', '--net', type=str, default='FCDD_CNN224_W', choices=choices(),
             help='Chooses a network architecture to train. Note that not all architectures fit every objective. '
         )
         parser.add_argument(
@@ -189,7 +189,7 @@ class DefaultMvtecConfig(DefaultConfig):
         parser = super().__call__(parser)
         parser.set_defaults(
             batch_size=16, acc_batches=8, supervise_mode='malformed_normal',
-            gauss_std=12, weight_decay=1e-5, epochs=200
+            gauss_std=12, weight_decay=1e-5, epochs=200, preproc='lcnaug1'
         )
         return parser
 
@@ -201,7 +201,7 @@ class DefaultImagenetConfig(DefaultConfig):
             batch_size=20, acc_batches=10, epochs=600,
             optimizer_type='adam', scheduler_type='milestones',
             lr_sched_param=[0.1, 400, 500], noise_mode='imagenet22k',
-            dataset='imagenet', net='FCDD_CNN224'
+            dataset='imagenet'
         )
         return parser
 

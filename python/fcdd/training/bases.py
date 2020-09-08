@@ -474,14 +474,16 @@ class BaseADTrainer(BaseTrainer):
                 rows.append(
                     self._image_processing(
                         ascores[idx][s * nrow:s * nrow + nrow], inpshp, maxres=self.resdown, qu=self.quantile,
-                        colorize=True, norm=norm, ref=ascores if norm == 'global' else None
+                        colorize=True, ref=ascores if norm == 'global' else ascores[idx],
+                        norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
             if grads is not None:
                 rows.append(
                     self._image_processing(
                         grads[idx][s * nrow:s * nrow + nrow], inpshp, self.blur_heatmaps, self.resdown,
-                        qu=self.quantile, colorize=True, norm=norm, ref=grads if norm == 'global' else None
+                        qu=self.quantile, colorize=True, ref=grads if norm == 'global' else grads[idx],
+                        norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
             if gtmaps is not None:
@@ -517,15 +519,17 @@ class BaseADTrainer(BaseTrainer):
             if self.objective != 'hsc':
                 rows.append(
                     self._image_processing(
-                        ascores[idx], inpshp, maxres=res, colorize=True, norm=norm,
-                        ref=ascores if norm == 'global' else None
+                        ascores[idx], inpshp, maxres=res, colorize=True,
+                        ref=ascores if norm == 'global' else None,
+                        norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
             if grads is not None:
                 rows.append(
                     self._image_processing(
-                        grads[idx], inpshp, self.blur_heatmaps, res, colorize=True, norm=norm,
-                        ref=grads if norm == 'global' else None
+                        grads[idx], inpshp, self.blur_heatmaps, res, colorize=True,
+                        ref=grads if norm == 'global' else None,
+                        norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
             if gtmaps is not None:
@@ -551,10 +555,9 @@ class BaseADTrainer(BaseTrainer):
             None: no normalization.
             'local': normalizes each image w.r.t. itself only.
             'global': normalizes each image w.r.t. to ref.
-            'semi_global': normalizes each image w.r.t. all images.
         :param qu: quantile used for normalization, qu=1 yields the typical 0-1 normalization.
         :param colorize: whether to colorize grayscaled images using colormaps (-> pseudocolored heatmaps!).
-        :param ref: a tensor of images used for global normalization.
+        :param ref: a tensor of images used for global normalization (defaults to imgs).
         :param cmap: the colormap that is used to colorize grayscaled images.
         :param inplace: whether to perform the operations inplace.
         :return: transformed tensor of images
@@ -598,9 +601,9 @@ class BaseADTrainer(BaseTrainer):
         # apply requested normalization
         if norm is not None:
             apply_norm = {
-                'local': self.__local_norm, 'global': self.__global_norm, 'semi_global': self.__global_norm
+                'local': self.__local_norm, 'global': self.__global_norm,
             }
-            imgs = apply_norm[norm](imgs, qu, ref if norm == 'global' else None)
+            imgs = apply_norm[norm](imgs, qu, ref)
 
         # if image is grayscaled, colorize, i.e. provide a pseudocolored heatmap!
         if colorize:

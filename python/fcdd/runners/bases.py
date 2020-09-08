@@ -43,8 +43,8 @@ def extract_viz_ids(dir: str, cls: str, it: int):
     return viz_ids
 
 
-NET_TO_HSC = {'FCDD_CNN224': 'CNN224', 'FCDD_CNN32_S': 'CNN32', 'FCDD_CNN28': 'CNN28'}
-NET_TO_AE = {'FCDD_CNN224': 'AE224', 'FCDD_CNN32_S': 'AE32', 'FCDD_CNN28': 'AE28'}
+NET_TO_HSC = {'FCDD_CNN224': 'CNN224', 'FCDD_CNN32_S': 'CNN32', 'FCDD_CNN28': 'CNN28', 'FCDD_CNN224_W': 'CNN224'}
+NET_TO_AE = {'FCDD_CNN224': 'AE224', 'FCDD_CNN32_S': 'AE32', 'FCDD_CNN28': 'AE28', 'FCDD_CNN224_W': 'AE224_W'}
 
 
 class BaseRunner(object):
