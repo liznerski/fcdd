@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def mean_roc(results: dict):
+def mean_roc(results: [dict]):
     """
     This computes a "mean" of multiple ROCs. While the mean of the AuROC is precise,
     the mean curve is rather an approximation.

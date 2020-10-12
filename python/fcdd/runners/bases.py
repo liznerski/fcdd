@@ -43,8 +43,18 @@ def extract_viz_ids(dir: str, cls: str, it: int):
     return viz_ids
 
 
-NET_TO_HSC = {'FCDD_CNN224': 'CNN224', 'FCDD_CNN32_S': 'CNN32', 'FCDD_CNN28': 'CNN28', 'FCDD_CNN224_W': 'CNN224'}
-NET_TO_AE = {'FCDD_CNN224': 'AE224', 'FCDD_CNN32_S': 'AE32', 'FCDD_CNN28': 'AE28', 'FCDD_CNN224_W': 'AE224_W'}
+NET_TO_HSC = {
+    'FCDD_CNN224': 'CNN224',  'FCDD_CNN224_W': 'CNN224', 'FCD_CNN224_VGG_F': 'CNN224_VGG_F',
+    'FCDD_CNN224_VGG_NOPT': 'CNN224_VGG_NOPT_1000', 'FCDD_CNN224_VGG': 'CNN224_VGG',
+    'FCDD_CNN32_LW3K': 'CNN32_LW3K', 'FCDD_CNN32_S': 'CNN32',
+    'FCDD_CNN28_W': 'CNN28_W', 'FCDD_CNN28': 'CNN28',
+}
+NET_TO_AE = {
+    'FCDD_CNN224': 'AE224', 'FCDD_CNN224_W': 'AE224', 'FCD_CNN224_VGG_F': 'AE224_VGG_F',
+    'FCDD_CNN224_VGG_NOPT': 'AE224_VGG_NOPT', 'FCDD_CNN224_VGG': 'AE224_VGG',
+    'FCDD_CNN32_LW3K': 'AE32_LW3K', 'FCDD_CNN32_S': 'AE32',
+    'FCDD_CNN28_W': 'AE28', 'FCDD_CNN28': 'AE28',
+}
 
 
 class BaseRunner(object):
@@ -69,7 +79,7 @@ class BaseRunner(object):
             del vars(self.args)['logdir_suffix']
         self.start = int(time.time())
         self.__backup, self.__bk_test = None, None
-        self.__test = True
+        self._test = True
 
     def run(self):
         self.run_one(**vars(self.args))
@@ -93,7 +103,7 @@ class BaseRunner(object):
         try:
             trainer = SuperTrainer(**setup)
             trainer.train(epochs, load, acc_batches=acc_batches)
-            if self.__test and (epochs > 0 or load is not None):
+            if self._test and (epochs > 0 or load is not None):
                 x = trainer.test(viz_ids)
             else:
                 x = trainer.res
@@ -136,11 +146,11 @@ class BaseRunner(object):
     def restore_args(self):
         if self.__backup is not None:
             self.args = deepcopy(self.__backup)
-            self.__test = self.__bk_test
+            self._test = self.__bk_test
 
     def backup_args(self):
         self.__backup = deepcopy(self.args)
-        self.__bk_test = self.__test
+        self.__bk_test = self._test
 
 
 class SeedsRunner(BaseRunner):

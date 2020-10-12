@@ -19,7 +19,7 @@ def salt_and_pepper(size: torch.Size, p=0.5):
 
 def kernel_size_to_std(k: int):
     """ Returns a standard deviation value for a Gaussian kernel based on its size """
-    return np.log10(0.45*k + 1) + 0.25 if k < 20 else 10
+    return np.log10(0.45*k + 1) + 0.25 if k < 32 else 10
 
 
 def gkern(k: int, std: float = None):
@@ -41,9 +41,9 @@ def gkern(k: int, std: float = None):
 
 
 def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int), (int, int)) = ((3, 3), (5, 5)),
-                   fillval: float = 1.0, backval: float = 0.0, ensureblob: bool = True, awgn: float = 0.0,
+                   fillval: int = 255, backval: int = 0, ensureblob: bool = True, awgn: float = 0.0,
                    clamp: bool = False, onlysquared: bool = True, rotation: int = 0,
-                   colored: bool = False) -> torch.Tensor:
+                   colorrange: (int, int) = None) -> torch.Tensor:
     """
     Generates "confetti" noise, as seen in the paper.
     The noise is based on sampling randomly many rectangles (in the following called blobs) at random positions.
@@ -56,15 +56,17 @@ def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int
     :param blobshaperange: limits the random size of the blobs. For ((h0, h1), (w0, w1)), all blobs' width
         is ensured to be in {w0, ..., w1}, and height to be in {h0, ..., h1}.
     :param fillval: if the color is not randomly chosen (see colored parameter), this sets the color of all blobs.
-        This is also the maximum value used for clamping (see clamp parameter).
+        This is also the maximum value used for clamping (see clamp parameter). Can be negative.
     :param backval: the background pixel value, i.e. the color of pixels in the noise image that are not part
-         of a blob.
+         of a blob. Also used for clamping.
     :param ensureblob: whether to ensure that there is at least one blob per noise image.
     :param awgn: amount of additive white gaussian noise added to all blobs.
     :param clamp: whether to clamp all noise image to the pixel value range (backval, fillval).
     :param onlysquared: whether to restrict the blobs to be squares only.
     :param rotation: the maximum amount of rotation (in degrees)
-    :param colored: whether the color of the blobs is randomly chosen.
+    :param colorrange: the range of possible color values for each blob and channel.
+        Defaults to None, where the blobs are not colored, but instead parameter fillval is used.
+        First value can be negative.
     :return: torch tensor containing n noise images. Either (n x c x h x w) or (n x h x w), depending on size.
     """
     assert len(size) == 4 or len(size) == 3, 'size must be n x c x h x w'
@@ -72,26 +74,28 @@ def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int
         blobshaperange = (blobshaperange, blobshaperange)
     assert len(blobshaperange) == 2
     assert len(blobshaperange[0]) == 2 and len(blobshaperange[1]) == 2
-    assert not colored or len(size) == 4 and size[1] == 3
+    assert colorrange is None or len(size) == 4 and size[1] == 3
     out_size = size
     colors = []
     if len(size) == 3:
         size = (size[0], 1, size[1], size[2])  # add channel dimension
     else:
         size = tuple(size)  # Tensor(torch.size) -> tensor of shape size, Tensor((x, y)) -> Tensor with 2 elements x & y
-    mask = (torch.rand((size[0], size[2], size[3])) < p).unsqueeze(1)
+    mask = (torch.rand((size[0], size[2], size[3])) < p).unsqueeze(1)  # mask[i, j, k] == 1 for center of blob
     while ensureblob and (mask.view(mask.size(0), -1).sum(1).min() == 0):
         idx = (mask.view(mask.size(0), -1).sum(1) == 0).nonzero().squeeze()
         s = idx.size(0) if len(idx.shape) > 0 else 1
         mask[idx] = (torch.rand((s, 1, size[2], size[3])) < p)
-    res = torch.empty(size).fill_(backval)
-    idx = mask.nonzero()
+    res = torch.empty(size).fill_(backval).int()
+    idx = mask.nonzero()  # [(idn, idz, idy, idx), ...] = indices of blob centers
+    if idx.reshape(-1).size(0) == 0:
+        return torch.zeros(out_size).int()
 
     all_shps = [
         (x, y) for x in range(blobshaperange[0][0], blobshaperange[1][0] + 1)
         for y in range(blobshaperange[0][1], blobshaperange[1][1] + 1) if not onlysquared or x == y
     ]
-    picks = torch.FloatTensor(idx.size(0)).uniform_(0, len(all_shps)).int()
+    picks = torch.FloatTensor(idx.size(0)).uniform_(0, len(all_shps)).int()  # for each blob center pick a shape
     nidx = []
     for n, blobshape in enumerate(all_shps):
         if (picks == n).sum() < 1:
@@ -105,21 +109,25 @@ def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int
             torch.arange(bws.start, bws.stop).unsqueeze(1).repeat(1, len(bhs)).reshape(-1)
         ]).transpose(0, 1)
         nid = idx[picks == n].unsqueeze(1) + extends.unsqueeze(0)
-        if colored:
-            col = torch.randint(0, 256, (3, ))[:, None].repeat(1, nid.reshape(-1, nid.size(-1)).size(0)).byte()
+        if colorrange is not None:
+            col = torch.randint(
+                colorrange[0], colorrange[1], (3, )
+            )[:, None].repeat(1, nid.reshape(-1, nid.size(-1)).size(0)).int()
             colors.append(col)
         nid = nid.reshape(-1, extends.size(1))
         nid = torch.max(torch.min(nid, torch.LongTensor(size) - 1), torch.LongTensor([0, 0, 0, 0]))
         nidx.append(nid)
-    idx = torch.cat(nidx)
+    idx = torch.cat(nidx)  # all pixel indices that blobs cover, not only center indices
     shp = res[idx.transpose(0, 1).numpy()].shape
-    if colored:
+    if colorrange is not None:
         colors = torch.cat(colors, dim=1)
-        res[idx.transpose(0, 1).numpy()] = colors[0] + torch.randn(shp) * awgn
-        res[(idx + torch.LongTensor((0, 1, 0, 0))).transpose(0, 1).numpy()] = colors[1] + torch.randn(shp) * awgn
-        res[(idx + torch.LongTensor((0, 2, 0, 0))).transpose(0, 1).numpy()] = colors[2] + torch.randn(shp) * awgn
+        gnoise = (torch.randn(3, *shp) * awgn).int() if awgn != 0 else (0, 0, 0)
+        res[idx.transpose(0, 1).numpy()] = colors[0] + gnoise[0]
+        res[(idx + torch.LongTensor((0, 1, 0, 0))).transpose(0, 1).numpy()] = colors[1] + gnoise[1]
+        res[(idx + torch.LongTensor((0, 2, 0, 0))).transpose(0, 1).numpy()] = colors[2] + gnoise[2]
     else:
-        res[idx.transpose(0, 1).numpy()] = torch.ones(shp) * fillval + torch.randn(shp) * awgn
+        gnoise = (torch.randn(shp) * awgn).int() if awgn != 0 else 0
+        res[idx.transpose(0, 1).numpy()] = torch.ones(shp).int() * fillval + gnoise
         res = res[:, 0, :, :]
         if len(out_size) == 4:
             res = res.unsqueeze(1).repeat(1, out_size[1], 1, 1)
@@ -140,8 +148,11 @@ def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int
                 ...
             )
             res[dims] = torch.from_numpy(
-                im_rotate(res[dims], rot, order=0, cval=0, center=(blbctr[1]-dims[1].start, blbctr[2]-dims[2].start))
-            )
+                im_rotate(
+                    res[dims].float(), rot, order=0, cval=0, center=(blbctr[1]-dims[1].start, blbctr[2]-dims[2].start),
+                    clip=False
+                )
+            ).int()
         res = res.transpose(1, 2).transpose(1, 3)
         res = res.squeeze() if len(out_size) != 4 else res
     return res
@@ -161,11 +172,11 @@ def colorize_noise(img: torch.Tensor, color_min: (int, int, int) = (-255, -255, 
     orig_img = img.clone()
     if len(set(color_min)) == 1 and len(set(color_max)) == 1:
         cmin, cmax = color_min[0], color_max[0]
-        img[img != 0] = torch.randint(cmin, cmax+1, img[img != 0].shape).float()
+        img[img != 0] = torch.randint(cmin, cmax+1, img[img != 0].shape).type(img.dtype)
     else:
         img = img.transpose(0, 1)
         for ch, (cmin, cmax) in enumerate(zip(color_min, color_max)):
-            img[ch][img[ch] != 0] = torch.randint(cmin, cmax+1, img[ch][img[ch] != 0].shape).float()
+            img[ch][img[ch] != 0] = torch.randint(cmin, cmax+1, img[ch][img[ch] != 0].shape).type(img.dtype)
     if p < 1:
         pmask = torch.rand(img[img != 0].shape) >= p
         tar = img[img != 0]
@@ -188,7 +199,7 @@ def smooth_noise(img: torch.Tensor, ksize: int, std: float, p: float = 1.0, inpl
     ksize = ksize if ksize % 2 == 1 else ksize - 1
     picks = torch.from_numpy(np.random.binomial(1, p, size=img.size(0))).bool()
     if picks.sum() > 0:
-        img[picks] = gaussian_blur2d(img[picks], (ksize, ) * 2, (std, ) * 2)
+        img[picks] = gaussian_blur2d(img[picks].float(), (ksize, ) * 2, (std, ) * 2).int()
     return img
 
 

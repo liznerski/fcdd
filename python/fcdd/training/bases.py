@@ -15,6 +15,7 @@ from fcdd.datasets.bases import GTMapADDataset
 from fcdd.datasets.noise import kernel_size_to_std
 from fcdd.models.bases import BaseNet, ReceptiveNet
 from fcdd.util.logging import colorize as colorize_img, Logger
+from fcdd.training import balance_labels
 from kornia import gaussian_blur2d
 from sklearn.metrics import roc_auc_score, roc_curve
 
@@ -376,11 +377,11 @@ class BaseADTrainer(BaseTrainer):
             gt_roc_score = roc_auc_score(flat_gtmaps, flat_ascores)
             gtmap_roc_res = {'tpr': gttpr, 'fpr': gtfpr, 'ths': gtthresholds, 'auc': gt_roc_score}
             self.logger.single_plot(
-                'gtmap_roc', gttpr, gtfpr, xlabel='false positive rate', ylabel='true positive rate',
+                'gtmap_roc_curve', gttpr, gtfpr, xlabel='false positive rate', ylabel='true positive rate',
                 legend=['auc={}'.format(gt_roc_score)], subdir=subdir
             )
             self.logger.single_save(
-                'roc_gt_pixelwise', gtmap_roc_res, subdir=subdir
+                'gtmap_roc', gtmap_roc_res, subdir=subdir
             )
             self.logger.logtxt('##### GTMAP ROC TEST SCORE {} #####'.format(gt_roc_score), print=True)
 
@@ -410,7 +411,8 @@ class BaseADTrainer(BaseTrainer):
             ]
             idx.extend([*sort[:k], *sort[-k:]])
         self._create_heatmaps_picture(
-            idx, name, imgs.shape, subdir, show_per_cls, imgs, ascores, grads, gtmaps)
+            idx, name, imgs.shape, subdir, show_per_cls, imgs, ascores, grads, gtmaps, labels
+        )
 
         # Concise paper picture: Samples grow from most nominal to most anomalous (equidistant).
         # 2 versions: with local normalization and semi-global normalization
@@ -431,17 +433,17 @@ class BaseADTrainer(BaseTrainer):
                     .format('{}_paper_lbl{}'.format(name, l), l, idx)
                 )
                 self._create_singlerow_heatmaps_picture(
-                    idx, name, inpshp, l, subdir, res, imgs, ascores, grads, gtmaps
+                    idx, name, inpshp, l, subdir, res, imgs, ascores, grads, gtmaps, labels
                 )
                 if specific_idx is not None and len(specific_idx) > 0:
                     self._create_singlerow_heatmaps_picture(
                         specific_idx[l], name, inpshp, l, pt.join(subdir, 'specific_viz_ids'),
-                        res, imgs, ascores, grads, gtmaps
+                        res, imgs, ascores, grads, gtmaps, labels
                     )
 
     def _create_heatmaps_picture(self, idx: [int], name: str, inpshp: torch.Size, subdir: str,
                                  nrow: int, imgs: Tensor, ascores: Tensor, grads: Tensor, gtmaps: Tensor,
-                                 norm: str = 'semi_global'):
+                                 labels: [int], norm: str = 'global'):
         """
         Creates a picture of inputs, heatmaps (either based on ascores or grads, if grads is not None),
         and ground-truth maps (if not None, otherwise omitted). Each row contains nrow many samples.
@@ -464,25 +466,33 @@ class BaseADTrainer(BaseTrainer):
         :param ascores: anomaly scores.
         :param grads: gradients.
         :param gtmaps: ground-truth maps.
-        :param norm: which type of normalization to use (see :meth:`_image_processing`).
+        :param norm: what type of normalization to apply.
+            None: no normalization.
+            'local': normalizes each heatmap w.r.t. itself only.
+            'global': normalizes each heatmap w.r.t. all heatmaps available (without taking idx into account),
+                though it is ensured to consider equally many anomalous and nominal samples (if there are e.g. more
+                nominal samples, randomly chosen nominal samples are ignored to match the correct amount).
+            'semi-global: normalizes each heatmap w.r.t. all heatmaps chosen in idx.
         """
         number_of_rows = int(np.ceil(len(idx) / nrow))
         rows = []
         for s in range(number_of_rows):
             rows.append(self._image_processing(imgs[idx][s * nrow:s * nrow + nrow], inpshp, maxres=self.resdown, qu=1))
             if self.objective != 'hsc':
+                err = self.objective != 'ae'
                 rows.append(
                     self._image_processing(
                         ascores[idx][s * nrow:s * nrow + nrow], inpshp, maxres=self.resdown, qu=self.quantile,
-                        colorize=True, ref=ascores if norm == 'global' else ascores[idx],
+                        colorize=True, ref=balance_labels(ascores, labels, err) if norm == 'global' else ascores[idx],
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
             if grads is not None:
                 rows.append(
                     self._image_processing(
-                        grads[idx][s * nrow:s * nrow + nrow], inpshp, self.blur_heatmaps, self.resdown,
-                        qu=self.quantile, colorize=True, ref=grads if norm == 'global' else grads[idx],
+                        grads[idx][s * nrow:s * nrow + nrow], inpshp, self.blur_heatmaps,
+                        self.resdown, qu=self.quantile,
+                        colorize=True, ref=balance_labels(grads, labels) if norm == 'global' else grads[idx],
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
@@ -497,7 +507,8 @@ class BaseADTrainer(BaseTrainer):
         self.logger.imsave(name, torch.cat(rows), nrow=nrow, scale_mode='none', subdir=subdir)
 
     def _create_singlerow_heatmaps_picture(self, idx: [int], name: str, inpshp: torch.Size, lbl: int, subdir: str,
-                                           res: int, imgs: Tensor, ascores: Tensor, grads: Tensor, gtmaps: Tensor):
+                                           res: int, imgs: Tensor, ascores: Tensor, grads: Tensor, gtmaps: Tensor,
+                                           labels: [int]):
         """
         Creates a picture of inputs, heatmaps (either based on ascores or grads, if grads is not None),
         and ground-truth maps (if not None, otherwise omitted).
@@ -514,13 +525,14 @@ class BaseADTrainer(BaseTrainer):
         :param grads: gradients.
         :param gtmaps: ground-truth maps.
         """
-        for norm in ['local', 'semi_global']:
+        for norm in ['local', 'global']:
             rows = [self._image_processing(imgs[idx], inpshp, maxres=res, qu=1)]
             if self.objective != 'hsc':
+                err = self.objective != 'ae'
                 rows.append(
                     self._image_processing(
                         ascores[idx], inpshp, maxres=res, colorize=True,
-                        ref=ascores if norm == 'global' else None,
+                        ref=balance_labels(ascores, labels, err) if norm == 'global' else None,
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
@@ -528,7 +540,7 @@ class BaseADTrainer(BaseTrainer):
                 rows.append(
                     self._image_processing(
                         grads[idx], inpshp, self.blur_heatmaps, res, colorize=True,
-                        ref=grads if norm == 'global' else None,
+                        ref=balance_labels(grads, labels) if norm == 'global' else None,
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
@@ -554,7 +566,7 @@ class BaseADTrainer(BaseTrainer):
         :param norm: what type of normalization to apply.
             None: no normalization.
             'local': normalizes each image w.r.t. itself only.
-            'global': normalizes each image w.r.t. to ref.
+            'global': normalizes each image w.r.t. to ref (ref defaults to imgs).
         :param qu: quantile used for normalization, qu=1 yields the typical 0-1 normalization.
         :param colorize: whether to colorize grayscaled images using colormaps (-> pseudocolored heatmaps!).
         :param ref: a tensor of images used for global normalization (defaults to imgs).
@@ -580,13 +592,13 @@ class BaseADTrainer(BaseTrainer):
             if isinstance(self.net, ReceptiveNet):
                 r = self.net.reception['r']
             elif self.objective == 'hsc':
-                r = self.net.fcdd_cls(self.net.in_shape).reception['r']
+                r = self.net.fcdd_cls(self.net.in_shape, bias=True).reception['r']
             elif self.objective == 'ae':
                 enc = self.net.encoder
                 if isinstance(enc, ReceptiveNet):
                     r = enc.reception['r']
                 else:
-                    r = enc.fcdd_cls(enc.in_shape).reception['r']
+                    r = enc.fcdd_cls(enc.in_shape, bias=True).reception['r']
             else:
                 raise NotImplementedError()
             r = (r - 1) if r % 2 == 0 else r
@@ -601,7 +613,7 @@ class BaseADTrainer(BaseTrainer):
         # apply requested normalization
         if norm is not None:
             apply_norm = {
-                'local': self.__local_norm, 'global': self.__global_norm,
+                'local': self.__local_norm, 'global': self.__global_norm
             }
             imgs = apply_norm[norm](imgs, qu, ref)
 

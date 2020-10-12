@@ -13,6 +13,8 @@ from fcdd.datasets.preprocessing import ImgGTTargetTransform
 
 
 class OnlineSuperviser(ImgGTTargetTransform):
+    invert_threshold = 0.025
+
     def __init__(self, ds: TorchvisionDataset, supervise_mode: str, noise_mode: str, oe_limit: int = np.infty,
                  p: float = 0.5, exclude: [str] = ()):
         """
@@ -113,9 +115,14 @@ class OnlineSuperviser(ImgGTTargetTransform):
             if supervise_mode in ['noise']:
                 img, gt, target = self.__noise(img, gt, target, self.ds, generated_noise)
             elif supervise_mode in ['malformed_normal']:
-                img, gt, target = self.__malformed_normal(img, gt, target, self.ds, generated_noise)
+                img, gt, target = self.__malformed_normal(
+                    img, gt, target, self.ds, generated_noise, invert_threshold=self.invert_threshold
+                )
             elif supervise_mode in ['malformed_normal_gt']:
-                img, gt, target = self.__malformed_normal(img, gt, target, self.ds, generated_noise, use_gt=True)
+                img, gt, target = self.__malformed_normal(
+                    img, gt, target, self.ds, generated_noise, use_gt=True,
+                    invert_threshold=self.invert_threshold
+                )
             else:
                 raise NotImplementedError('Supervise mode {} unknown.'.format(supervise_mode))
             img = img.squeeze(0) if img is not None else img
@@ -131,17 +138,17 @@ class OnlineSuperviser(ImgGTTargetTransform):
         return anom, gt, t
 
     def __malformed_normal(self, img: torch.Tensor, gt: torch.Tensor, target: int, ds: TorchvisionDataset,
-                           generated_noise: torch.Tensor, use_gt: bool = False, brightness_threshold: float = 0.11*255):
+                           generated_noise: torch.Tensor, use_gt: bool = False, invert_threshold: float = 0.025):
         assert (img.dim() == 4 or img.dim() == 3) and generated_noise.shape == img.shape
         anom = img.clone()
 
-        # invert noise for bright regions (bright regions are considered being on average > 0.33 * 255)
-        generated_noise = generated_noise.int()
-        bright_regions = img.sum(1) > brightness_threshold * img.shape[1]
-        for ch in range(img.shape[1]):
-            gnch = generated_noise[:, ch]
-            gnch[bright_regions] = gnch[bright_regions] * -1
-            generated_noise[:, ch] = gnch
+        # invert noise if difference of malformed and original is less than threshold and inverted difference is higher
+        diff = ((anom.int() + generated_noise).clamp(0, 255) - anom.int())
+        diff = diff.reshape(anom.size(0), -1).sum(1).float().div(np.prod(anom.shape)).abs()
+        diffi = ((anom.int() - generated_noise).clamp(0, 255) - anom.int())
+        diffi = diffi.reshape(anom.size(0), -1).sum(1).float().div(np.prod(anom.shape)).abs()
+        inv = [i for i, (d, di) in enumerate(zip(diff, diffi)) if d < invert_threshold and di > d]
+        generated_noise[inv] = -generated_noise[inv]
 
         anom = (anom.int() + generated_noise).clamp(0, 255).byte()
 

@@ -11,8 +11,6 @@ class SingleMvtecConfig(DefaultMvtecConfig):
 
 
 if __name__ == '__main__':
-    from fcdd.datasets.mvtec import ADMvTec
-    ADMvTec.enlarge = False
     runner = SeedsRunner(SingleMvtecConfig())
     runner.args.logdir += '_mvtec_single_run_cls{}_'.format(runner.args.normal_class)
     runner.run()

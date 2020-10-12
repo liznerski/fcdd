@@ -51,7 +51,7 @@ You can change both, the log directory and the data directory, by altering the r
 
 **Virtual Environment** If you have used a virtual environment to install FCDD, make sure to activate it.
 
-**Train Scrips** We recommend training FCDD by starting one of the runners in `python/fcdd/runners` from the `python/fcdd` directory. 
+**Train Scripts** We recommend training FCDD by starting one of the runners in `python/fcdd/runners` from the `python/fcdd` directory. 
 They train several (randomly initialized) separate FCDD models for each class, where in each the respective class is considered nominal. 
 
 #### Fashion-MNIST
@@ -170,14 +170,14 @@ The actual log data consists of:
 - **err_anomalous.pdf**: A plot of the loss for anomalous samples only.
 - **err_normal.pdf**: A plot of the loss for nominal samples only.
 - **heatmaps_paper_x_lbly.png**: An image of test heatmaps, test inputs, and ground-truth maps. One image for each x-y combination. x is the normalization used, either local (each heatmap is normalized w.r.t. itself only) or semi_global (each heatmap is normalized w.r.t. to all heatmaps in the image). y is the label, i.e. either 1 or 0 (per default 1 is for anomalies).
-- **heatmaps_semi_global.png**: An image of the first test heatmaps and inputs found in the dataset. The first row shows nominal samples, the second-row anomalous samples. The third row shows the ten most nominal rated nominal samples on the left and the ten most anomalous rated nominal samples on the right. The fourth row shows the ten most nominal rated anomalies on the left and the ten most anomalous rated anomalies on the right. Note that changing the nominal label to 1 flips this. 
-- **train_heatmaps_semi_global.png**: Like above, but for training samples.
+- **heatmaps_global.png**: An image of the first test heatmaps and inputs found in the dataset. The first row shows nominal samples, the second-row anomalous samples. The third row shows the ten most nominal rated nominal samples on the left and the ten most anomalous rated nominal samples on the right. The fourth row shows the ten most nominal rated anomalies on the left and the ten most anomalous rated anomalies on the right. Note that changing the nominal label to 1 flips this. 
+- **train_heatmaps_global.png**: Like above, but for training samples.
 - **history.json**: A file containing metrics in text form.
 - **log.txt**: A file containing some logged text lines, like the average AUC value achieved and the duration of the training.
 - **print.log**: A file that contains all text that has been printed on the console using the Logger.
 - **roc.json**: ROC values saved as text (not very readable for humans). 
 - **roc_curve.pdf**: ROC for detection performance.
-- **gtmap_roc.pdf**: ROC for explanation performance. Only for MVTec-AD (or datasets with ground-truth maps). 
+- **gtmap_roc_curve.pdf**: ROC for explanation performance. Only for MVTec-AD (or datasets with ground-truth maps). 
 - **snapshot.pt**: Snapshot of the training state and model parameters.
 - **src.tar.gz**: Snapshot of the complete source code at the moment of the training start time. 
 - **tims**: A directory containing raw tensors heatmaps (not readable for humans). 

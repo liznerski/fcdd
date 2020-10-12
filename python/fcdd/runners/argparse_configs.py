@@ -141,9 +141,9 @@ class DefaultConfig(object):
             help='Blurs heatmaps, like done for the explanation baseline experiments in the paper.'
         )
         parser.add_argument(
-            '--gauss-std', type=float, default=None,
+            '--gauss-std', type=float, default=10,
             help='Sets a constant value for the standard deviation of the Gaussian kernel used for upsampling and '
-                 'blurring, the default value is determined by the formula explained in the paper.'
+                 'blurring.'
         )
         parser.add_argument(
             '--quantile', type=float, default=0.97,
@@ -167,7 +167,8 @@ class DefaultFmnistConfig(DefaultConfig):
         parser.set_defaults(
             batch_size=128, epochs=400, learning_rate=1e-2,
             weight_decay=1e-6, lr_sched_param=[0.98], dataset='fmnist',
-            net='FCDD_CNN28', quantile=0.93, noise_mode='cifar100', preproc='lcnaug1'
+            net='FCDD_CNN28_W', quantile=0.85, noise_mode='cifar100',
+            preproc='lcnaug1', gauss_std=1.2,
         )
         return parser
 
@@ -179,7 +180,8 @@ class DefaultCifar10Config(DefaultConfig):
             batch_size=20, acc_batches=10, epochs=600,
             optimizer_type='adam', scheduler_type='milestones',
             lr_sched_param=[0.1, 400, 500], dataset='cifar10',
-            net='FCDD_CNN32_S', quantile=0.93, noise_mode='cifar100'
+            net='FCDD_CNN32_LW3K', quantile=0.85,
+            noise_mode='cifar100', gauss_std=1.2,
         )
         return parser
 
@@ -189,7 +191,8 @@ class DefaultMvtecConfig(DefaultConfig):
         parser = super().__call__(parser)
         parser.set_defaults(
             batch_size=16, acc_batches=8, supervise_mode='malformed_normal',
-            gauss_std=12, weight_decay=1e-5, epochs=200, preproc='lcnaug1'
+            gauss_std=12, weight_decay=1e-4, epochs=200, preproc='lcnaug1',
+            quantile=0.99, net='FCDD_CNN224_VGG_F'
         )
         return parser
 
@@ -201,7 +204,7 @@ class DefaultImagenetConfig(DefaultConfig):
             batch_size=20, acc_batches=10, epochs=600,
             optimizer_type='adam', scheduler_type='milestones',
             lr_sched_param=[0.1, 400, 500], noise_mode='imagenet22k',
-            dataset='imagenet'
+            dataset='imagenet', gauss_std=8, net='FCDD_CNN224_VGG_NOPT'
         )
         return parser
 
@@ -212,8 +215,8 @@ class DefaultPascalvocConfig(DefaultConfig):
         parser.set_defaults(
             batch_size=20, acc_batches=10, epochs=600,
             optimizer_type='adam', scheduler_type='milestones', lr_sched_param=[0.1, 400, 500],
-            dataset='pascalvoc', net='FCDD_CNN224', noise_mode='imagenet',
-            nominal_label=1
+            dataset='pascalvoc', noise_mode='imagenet', net='FCDD_CNN224_VGG_NOPT',
+            nominal_label=1, gauss_std=8, quantile=0.99,
         )
         return parser
 

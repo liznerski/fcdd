@@ -281,7 +281,7 @@ class Logger(object):
                 return
             with open(outfile, 'w') as writer:
                 json.dump(dic, writer, cls=NumpyEncoder)
-        elif isinstance(dic, torch.Tensor):
+        else:
             torch.save(dic, outfile.replace('.json', '.pth'))
 
     def plot(self, subdir='.'):
