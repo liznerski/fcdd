@@ -47,7 +47,7 @@ class BaseTrainer(ABC):
         :param sched: learning rate scheduler.
         :param dataset_loaders:
         :param logger: some logger.
-		:param tb_logger: Tensorboard logger.
+        :param tb_logger: Tensorboard logger.
         :param device: some torch device, either cpu or gpu.
         :param kwargs: ...
         """
