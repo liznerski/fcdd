@@ -72,7 +72,7 @@ class TorchvisionDataset(BaseADDataset):
                                  num_workers=num_workers, pin_memory=True,)
         return train_loader, test_loader
 
-    def preview(self, percls=20, train=True) -> torch.Tensor:
+    def preview(self, percls=20, train=True, num_workers=4) -> torch.Tensor:
         """
         Generates a preview of the dataset, i.e. it generates an image of some randomly chosen outputs
         of the dataloader, including ground-truth maps if available.
@@ -81,13 +81,14 @@ class TorchvisionDataset(BaseADDataset):
         to have an early look at the artificial anomalies.
         :param percls: how many samples are shown per class, i.e. for anomalies and nominal samples each
         :param train: whether to show training samples or test samples
+        :param num_workers: number of workers in loader
         :return: a Tensor of images (n x c x h x w)
         """
         self.logprint('Generating dataset preview...')
         if train:
-            loader, _ = self.loaders(20, num_workers=4, shuffle_train=True)
+            loader, _ = self.loaders(20, num_workers=num_workers, shuffle_train=True)
         else:
-            _, loader = self.loaders(20, num_workers=4, shuffle_test=True)
+            _, loader = self.loaders(20, num_workers=num_workers, shuffle_test=True)
         all_x, all_y, all_gts, out = [], [], [], []
         if isinstance(self.train_set, GTMapADDataset):
             for x, y, gts in loader:

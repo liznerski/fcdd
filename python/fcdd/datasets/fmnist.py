@@ -7,6 +7,23 @@ from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompo
 from fcdd.util.logging import Logger
 from torchvision.datasets import FashionMNIST
 
+class TargetTransFunctor:
+    def __init__(self, anomalous_label, outlier_classes, nominal_label):
+        self.anomalous_label = anomalous_label
+        self.outlier_classes = outlier_classes
+        self.nominal_label = nominal_label
+
+    def __call__(self, x):
+        return self.anomalous_label if x in self.outlier_classes else self.nominal_label
+
+def local_contrast_normalization_func(x):
+    return local_contrast_normalization(x, scale='l1')
+
+def noise_func(x):
+    return x + 0.01 * torch.randn_like(x)
+
+def supervision_func(x):
+    return x.squeeze() if isinstance(x, torch.Tensor) else x
 
 class ADFMNIST(TorchvisionDataset):
     def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
@@ -82,7 +99,7 @@ class ADFMNIST(TorchvisionDataset):
         if preproc == 'lcn':
             test_transform = transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     [min_max_l1[normal_class][0]], [min_max_l1[normal_class][1] - min_max_l1[normal_class][0]]
                 )
@@ -102,13 +119,13 @@ class ADFMNIST(TorchvisionDataset):
                 transforms.RandomCrop(28, padding=3),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.01 * torch.randn_like(x)),
+                transforms.Lambda(noise_func),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
         elif preproc in ['lcnaug1']:
             test_transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     [min_max_l1[normal_class][0]], [min_max_l1[normal_class][1] - min_max_l1[normal_class][0]]
                 )
@@ -117,7 +134,7 @@ class ADFMNIST(TorchvisionDataset):
                 transforms.RandomCrop(28, padding=2),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     [min_max_l1[normal_class][0]], [min_max_l1[normal_class][1] - min_max_l1[normal_class][0]]
                 )
@@ -125,19 +142,20 @@ class ADFMNIST(TorchvisionDataset):
         else:
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
-        target_transform = transforms.Lambda(
-            lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
-        )
+        target_transform = transforms.Lambda(TargetTransFunctor(self.anomalous_label, self.outlier_classes,
+                                                                self.nominal_label))
         all_transform = None
         if online_supervision:
             if noise_mode not in ['emnist']:
                 self.raw_shape = (1, 28, 28)
                 all_transform = MultiCompose([
                     OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
-                    transforms.Lambda(lambda x: x.squeeze() if isinstance(x, torch.Tensor) else x)
+                    transforms.Lambda(supervision_func)
                 ])
             else:
-                all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit), ])
+                all_transform = MultiCompose([
+                    OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
+                ])
             self.raw_shape = (28, 28)
 
         train_set = MyFashionMNIST(root=self.root, train=True, download=True, normal_classes=self.normal_classes,
