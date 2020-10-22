@@ -80,7 +80,8 @@ class ReceptiveModule(torch.nn.Module, ABC):
 
     @property
     def device(self):
-        return list(self.parameters())[0].device
+        p = list(self.parameters())
+        return p[0].device if p else None
 
     def __upsample_nn(self, pixels):
         res = torch.nn.functional.interpolate(pixels, self.reception['img_shape'][1:])

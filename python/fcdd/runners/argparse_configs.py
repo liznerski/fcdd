@@ -23,6 +23,11 @@ class DefaultConfig(object):
                  'Defaults to ../../data/results/fcdd_{t}. '
         )
         parser.add_argument(
+            '--tb_logdir', type=str, default=pt.join('..', '..', 'data', 'results', 'tb'),
+            help='Directory where Tensorboard log data to be stored. '
+                 'Defaults to ../../data/results. '
+        )
+        parser.add_argument(
             '--logdir-suffix', type=str, default='',
             help='String suffix for log directory, again {t} is replaced by the start time. '
         )

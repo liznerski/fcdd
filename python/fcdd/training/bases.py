@@ -15,6 +15,7 @@ from fcdd.datasets.bases import GTMapADDataset
 from fcdd.datasets.noise import kernel_size_to_std
 from fcdd.models.bases import BaseNet, ReceptiveNet
 from fcdd.util.logging import colorize as colorize_img, Logger
+from fcdd.util.tb import TBLogger
 from fcdd.training import balance_labels
 from kornia import gaussian_blur2d
 from sklearn.metrics import roc_auc_score, roc_curve
@@ -36,7 +37,7 @@ def reorder(labels: [int], loss: Tensor, anomaly_scores: Tensor, imgs: Tensor, o
 
 class BaseTrainer(ABC):
     def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
-                 logger: Logger, device='cuda:0', **kwargs):
+                 logger: Logger, tb_logger: TBLogger, device='cuda:0', **kwargs):
         """
         Base class for trainers, defines a simple train method and a method to load snapshots.
         At least the abstract loss method needs to be implemented, as it is used in the
@@ -46,6 +47,7 @@ class BaseTrainer(ABC):
         :param sched: learning rate scheduler.
         :param dataset_loaders:
         :param logger: some logger.
+		:param tb_logger: Tensorboard logger.
         :param device: some torch device, either cpu or gpu.
         :param kwargs: ...
         """
@@ -54,11 +56,17 @@ class BaseTrainer(ABC):
         self.sched = sched
         self.train_loader, self.test_loader = dataset_loaders
         self.logger = logger
+        self.tb_logger = tb_logger
         self.device = device
 
     def train(self, epochs: int) -> BaseNet:
         """ Does epochs many full iteration of the data loader and trains the network with the data using self.loss """
         self.net = self.net.to(self.device).train()
+        with torch.no_grad():
+            inputs, _ = next(iter(self.train_loader))
+            inputs = inputs.to(self.device)
+            self.tb_logger.add_network(self.net, inputs)
+
         for epoch in range(epochs):
             for n_batch, data in enumerate(self.train_loader):
                 inputs, labels = data
@@ -76,6 +84,12 @@ class BaseTrainer(ABC):
                     )
                 )
             self.sched.step()
+            mask = labels == 0
+            self.tb_logger.add_scalars(loss, self.opt.param_groups[0]['lr'], epoch)
+            self.tb_logger.add_weight_histograms(self.net, epoch)
+            self.tb_logger.add_images(inputs[mask], None, outputs[mask], True, epoch)
+            self.tb_logger.add_images(inputs[~mask], None, outputs[~mask], False, epoch)
+        self.tb_logger.close()
         return self.net
 
     @abstractmethod
@@ -112,7 +126,7 @@ class BaseTrainer(ABC):
 
 class BaseADTrainer(BaseTrainer):
     def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
-                 logger: Logger, objective: str, gauss_std: float, quantile: float, resdown: int, blur_heatmaps=False,
+                 logger: Logger, tb_logger: TBLogger, objective: str, gauss_std: float, quantile: float, resdown: int, blur_heatmaps=False,
                  device='cuda:0', **kwargs):
         """
         Anomaly detection trainer that defines a test phase where scores are computed and heatmaps are generated.
@@ -123,7 +137,7 @@ class BaseADTrainer(BaseTrainer):
         :param resdown: the maximum resolution of logged images, images will be downsampled if necessary.
         :param blur_heatmaps: whether to blur heatmaps.
         """
-        super().__init__(net, opt, sched, dataset_loaders, logger, device, **kwargs)
+        super().__init__(net, opt, sched, dataset_loaders, logger, tb_logger, device, **kwargs)
         self.objective = objective
         self.gauss_std = gauss_std
         self.quantile = quantile
@@ -160,6 +174,11 @@ class BaseADTrainer(BaseTrainer):
         """
         assert 0 < acc_batches and isinstance(acc_batches, int)
         self.net = self.net.to(self.device).train()
+        with torch.no_grad():
+            inputs, _ = next(iter(self.train_loader))
+            inputs = inputs.to(self.device)
+            self.tb_logger.add_network(self.net, inputs)
+
         for epoch in range(epochs):
             acc_data, acc_counter = [], 1
             for n_batch, data in enumerate(self.train_loader):
@@ -201,7 +220,19 @@ class BaseADTrainer(BaseTrainer):
                         ),
                         info=info
                     )
+
+            self.tb_logger.add_weight_histograms(self.net, epoch)
+            if len(set(labels.tolist())) > 1:
+                mask = labels == 0
+                self.tb_logger.add_scalars(loss, info['err_normal'], info['err_anomalous'],
+                                        self.opt.param_groups[0]['lr'], epoch)
+                self.tb_logger.add_images(inputs[mask], gtmaps[mask] if gtmaps is not None else None,
+                                          outputs[mask], True, epoch)
+                self.tb_logger.add_images(inputs[~mask], gtmaps[~mask] if gtmaps is not None else None,
+                                          outputs[~mask], False, epoch)
+
             self.sched.step()
+        self.tb_logger.close()
         return self.net
 
     def test(self, specific_viz_ids: ([int], [int]) = ()) -> dict:

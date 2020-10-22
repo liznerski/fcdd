@@ -4,6 +4,7 @@ from fcdd.training.fcdd import FCDDTrainer
 from fcdd.training.hsc import HSCTrainer
 from fcdd.training.ae import AETrainer
 from fcdd.util.logging import Logger
+from fcdd.util.tb import TBLogger
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data.dataloader import DataLoader
@@ -12,7 +13,7 @@ from torch.utils.data.dataloader import DataLoader
 class SuperTrainer(object):
     def __init__(
             self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
-            logger: Logger, device=torch.device('cuda:0'), objective='fcdd',
+            logger: Logger, tb_logger: TBLogger, device=torch.device('cuda:0'), objective='fcdd',
             quantile=0.93, resdown=64, gauss_std: float = None, blur_heatmaps=True
     ):
         """
@@ -49,18 +50,19 @@ class SuperTrainer(object):
 
         if objective == 'fcdd':
             self.trainer = FCDDTrainer(
-                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
+                net, opt, sched, dataset_loaders, logger, tb_logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
             )
         elif objective == 'hsc':
             self.trainer = HSCTrainer(
-                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
+                net, opt, sched, dataset_loaders, logger, tb_logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
             )
         else:
             self.trainer = AETrainer(
-                net, opt, sched, dataset_loaders, logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
+                net, opt, sched, dataset_loaders, logger, tb_logger, objective, gauss_std, quantile, resdown, blur_heatmaps, device
             )
 
         self.logger = logger
+        self.tb_logger = tb_logger
         self.res = {}  # keys = {pt_roc, roc, gtmap_roc, prc, gtmap_prc}
 
     def train(self, epochs: int, snap: str = None, acc_batches=1):

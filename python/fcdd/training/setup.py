@@ -8,6 +8,7 @@ from fcdd.datasets.bases import GTMapADDataset
 from fcdd.datasets.noise_modes import MODES
 from fcdd.models import load_nets
 from fcdd.util.logging import Logger
+from fcdd.util.tb import TBLogger
 
 OBJECTIVES = ('fcdd', 'hsc', 'ae')
 SUPERVISE_MODES = ('unsupervised', 'other', 'noise', 'malformed_normal', 'malformed_normal_gt')
@@ -48,7 +49,7 @@ def pick_opt_sched(net: BaseNet, lr: float, wdk: float, sched_params: [float], o
 
 
 def trainer_setup(
-        dataset: str, datadir: str, logdir: str, net: str, bias: bool,
+        dataset: str, datadir: str, logdir: str, tb_logdir: str, net: str, bias: bool,
         learning_rate: float, weight_decay: float, lr_sched_param: [float], batch_size: int,
         optimizer_type: str, scheduler_type: str,
         objective: str, preproc: str, supervise_mode: str, nominal_label: int,
@@ -62,6 +63,7 @@ def trainer_setup(
     :param dataset: dataset identifier string (see :data:`fcdd.datasets.DS_CHOICES`).
     :param datadir: directory where the datasets are found or to be downloaded to.
     :param logdir: directory where log data is to be stored.
+    :param tb_logdir: directory where Tensorboard log data is to be stored.
     :param net: network model identifier string (see :func:`fcdd.models.choices`).
     :param bias: whether to use bias in the network layers.
     :param learning_rate: initial learning rate.
@@ -100,6 +102,7 @@ def trainer_setup(
     assert noise_mode in MODES, 'unknown noise mode: {}'.format(noise_mode)
     device = torch.device('cuda:0') if cuda else torch.device('cpu')
     logger = Logger(pt.abspath(pt.join(logdir, '')), exp_start_time=log_start_time)
+    tb_logger = TBLogger(pt.abspath(tb_logdir))
     ds = load_dataset(
         dataset, pt.abspath(pt.join(datadir, '')), normal_class, preproc, supervise_mode,
         noise_mode, online_supervision, nominal_label, oe_limit, logger=logger
@@ -119,14 +122,14 @@ def trainer_setup(
     else:
         ds_order = ['anom', 'norm']
     logger.imsave(
-        'ds_preview', ds.preview(20), nrow=20,
+        'ds_preview', ds.preview(20, num_workers=workers), nrow=20,
         rowheaders=ds_order if not isinstance(ds.train_set, GTMapADDataset)
         else [*ds_order, '', *['gtno' if s == 'norm' else 'gtan' for s in ds_order]]
     )
     return {
         'net': net, 'dataset_loaders': loaders, 'opt': optimizer, 'sched': scheduler, 'logger': logger,
         'device': device, 'objective': objective, 'quantile': quantile, 'resdown': resdown,
-        'gauss_std': gauss_std, 'blur_heatmaps': blur_heatmaps
+        'gauss_std': gauss_std, 'blur_heatmaps': blur_heatmaps, 'tb_logger': tb_logger
     }
 
 
