@@ -84,11 +84,12 @@ class BaseTrainer(ABC):
                     )
                 )
             self.sched.step()
-            mask = labels == 0
-            self.tb_logger.add_scalars(loss, self.opt.param_groups[0]['lr'], epoch)
             self.tb_logger.add_weight_histograms(self.net, epoch)
-            self.tb_logger.add_images(inputs[mask], None, outputs[mask], True, epoch)
-            self.tb_logger.add_images(inputs[~mask], None, outputs[~mask], False, epoch)
+            if len(set(labels.tolist())) > 1:
+                mask = labels == 0
+                self.tb_logger.add_scalars(loss, self.opt.param_groups[0]['lr'], epoch)
+                self.tb_logger.add_images(inputs[mask], None, outputs[mask], True, epoch)
+                self.tb_logger.add_images(inputs[~mask], None, outputs[~mask], False, epoch)
         self.tb_logger.close()
         return self.net
 
