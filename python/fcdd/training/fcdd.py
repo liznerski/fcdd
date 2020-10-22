@@ -28,8 +28,8 @@ class FCDDTrainer(BaseADTrainer):
             loss = loss.reshape(labels.size(0), -1).mean(-1)
             norm = loss[labels == 0]
             anom = (-(((1 - (-loss[labels == 1]).exp()) + 1e-31).log()))
-            loss[(1-labels).nonzero().squeeze()] = norm
-            loss[labels.nonzero().squeeze()] = anom
+            loss[(1-labels).nonzero(as_tuple=False).squeeze()] = norm
+            loss[labels.nonzero(as_tuple=False).squeeze()] = anom
         else:
             loss = loss
         return loss
