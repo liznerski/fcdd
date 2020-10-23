@@ -3,7 +3,8 @@ import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
-from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, BlackCenter
+from fcdd.datasets.preprocessing import MultiCompose, BlackCenter, \
+    TargetTransFunctor, AWGN, local_contrast_normalization_func
 from fcdd.util.logging import Logger
 from torchvision.datasets import CIFAR10
 
@@ -87,7 +88,7 @@ class ADCIFAR10(TorchvisionDataset):
         if preproc == 'lcn':
             test_transform = transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     [min_max_l1[normal_class][0]] * 3, [min_max_l1[normal_class][1] - min_max_l1[normal_class][0]] * 3
                 )
@@ -107,7 +108,7 @@ class ADCIFAR10(TorchvisionDataset):
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
         elif preproc in ['aug1_blackcenter']:
@@ -120,7 +121,7 @@ class ADCIFAR10(TorchvisionDataset):
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 BlackCenter(0.6),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
@@ -134,7 +135,7 @@ class ADCIFAR10(TorchvisionDataset):
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 BlackCenter(0.6, inverse=True),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
@@ -142,7 +143,7 @@ class ADCIFAR10(TorchvisionDataset):
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
-            lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
+            TargetTransFunctor(self.anomalous_label, self.outlier_classes, self.nominal_label)
         )
         if online_supervision:
             all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit), *all_transform])

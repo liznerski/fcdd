@@ -39,46 +39,34 @@ class OnlineSuperviser(ImgGTTargetTransform):
         self.p = p
         self.noise_sampler = None
         if noise_mode == 'imagenet':
-            self.noise_sampler = cycle(
-                OEImageNet(
+            self.noise_sampler = OEImageNet(
                     (1, ) + ds.raw_shape, limit_var=oe_limit, root=ds.root, exclude=exclude
-                ).data_loader()
-            )
+            ).data_loader()
         elif noise_mode == 'imagenet22k':
-            self.noise_sampler = cycle(
-                OEImageNet22k(
+            self.noise_sampler = OEImageNet22k(
                     (1, ) + ds.raw_shape, limit_var=oe_limit, logger=ds.logger,
                     root=ds.root
-                ).data_loader()
-            )
+            ).data_loader()
         elif noise_mode == 'cifar100':
-            self.noise_sampler = cycle(
-                OECifar100(
+            self.noise_sampler = OECifar100(
                     (1, ) + ds.raw_shape, limit_var=oe_limit,
                     root=ds.root
-                ).data_loader(),
-            )
+            ).data_loader()
         elif noise_mode == 'emnist':
-            self.noise_sampler = cycle(
-                OEEMNIST(
+            self.noise_sampler = OEEMNIST(
                     (1, ) + ds.raw_shape, limit_var=oe_limit,
                     root=ds.root
-                ).data_loader()
-            )
+            ).data_loader()
         elif noise_mode == 'mvtec':
-            self.noise_sampler = cycle(
-                OEMvTec(
+            self.noise_sampler = OEMvTec(
                     (1, ) + ds.raw_shape, ds.normal_classes, limit_var=oe_limit,
                     logger=ds.logger, root=ds.root
-                ).data_loader()
-            )
+            ).data_loader()
         elif noise_mode == 'mvtec_gt':
-            self.noise_sampler = cycle(
-                OEMvTec(
+            self.noise_sampler = OEMvTec(
                     (1, ) + ds.raw_shape, ds.normal_classes, limit_var=oe_limit,
                     logger=ds.logger, gt=True, root=ds.root
-                ).data_loader()
-            )
+            ).data_loader()
 
     def __call__(self, img: torch.Tensor, gt: torch.Tensor, target: int,
                  replace: bool = None) -> (torch.Tensor, torch.Tensor, int):
@@ -91,6 +79,9 @@ class OnlineSuperviser(ImgGTTargetTransform):
             The probability is only considered if replace == None.
         :return: (img, gt, target)
         """
+        if isinstance(self.noise_sampler, torch.utils.data.DataLoader):
+            self.noise_sampler = cycle(self.noise_sampler)
+
         active = self.supervise_mode not in ['other', 'unsupervised']
         if active and (replace or replace is None and random.random() < self.p):
             supervise_mode = self.supervise_mode

@@ -3,12 +3,11 @@ import os.path as pt
 import random
 
 import numpy as np
-import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
 from fcdd.datasets.outlier_exposure.imagenet import MyImageFolder
-from fcdd.datasets.preprocessing import get_target_label_idx
+from fcdd.datasets.preprocessing import get_target_label_idx, TargetTransFunctor, AWGN
 from fcdd.util.logging import Logger
 from torch.utils.data import Subset
 from torchvision.datasets.imagenet import META_FILE, parse_train_archive, parse_val_archive
@@ -87,14 +86,14 @@ class ADImageNet(TorchvisionDataset):
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomCrop(self.shape[-1]),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 transforms.Normalize(mean, std)
             ])
         else:
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
-            lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
+            TargetTransFunctor(self.anomalous_label, self.outlier_classes, self.nominal_label)
         )
         if supervise_mode not in ['unsupervised', 'other']:
             all_transform = OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit)

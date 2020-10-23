@@ -6,8 +6,23 @@ from PIL import Image
 from fcdd.datasets.bases import TorchvisionDataset, GTSubset
 from fcdd.datasets.mvtec_base import MvTec
 from fcdd.datasets.online_superviser import OnlineSuperviser
-from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, get_target_label_idx
+from fcdd.datasets.preprocessing import MultiCompose, get_target_label_idx, \
+    TargetTransFunctor, local_contrast_normalization_func
 from fcdd.util.logging import Logger
+
+
+class MvTecTestTargetTransFunctor(object):
+    def __init__(self, anomalous_label: int, normal_anomaly_label_idx: int, nominal_label: int):
+        self.anomalous_label = anomalous_label
+        self.normal_anomaly_label_idx = normal_anomaly_label_idx
+        self.nominal_label = nominal_label
+
+    def __call__(self, x):
+        return self.anomalous_label if x != self.normal_anomaly_label_idx else self.nominal_label
+
+
+def mvtec_awgn(x):
+    return (x + torch.randn_like(x).mul(np.random.randint(0, 2)).mul(x.std()).mul(0.1)).clamp(0, 1)
 
 
 class ADMvTec(TorchvisionDataset):
@@ -125,7 +140,7 @@ class ADMvTec(TorchvisionDataset):
                 transforms.ToTensor(),
             ])
             test_transform = transform = transforms.Compose([
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     min_max_l1[normal_class][0],
                     [ma - mi for ma, mi in zip(min_max_l1[normal_class][1], min_max_l1[normal_class][0])]
@@ -159,9 +174,7 @@ class ADMvTec(TorchvisionDataset):
                     transforms.ColorJitter(0.005, 0.0005, 0.0005, 0.0005),
                 ]),
                 transforms.ToTensor(),
-                transforms.Lambda(
-                    lambda x: (x + torch.randn_like(x).mul(np.random.randint(0, 2)).mul(x.std()).mul(0.1)).clamp(0, 1)
-                ),
+                transforms.Lambda(mvtec_awgn),
                 transforms.Normalize(mean[normal_class], std[normal_class])
             ])
         elif preproc in ['lcnaug1']:
@@ -175,7 +188,7 @@ class ADMvTec(TorchvisionDataset):
                 [transforms.Resize(self.shape[-1], Image.NEAREST), transforms.ToTensor()]
             )
             test_transform = transforms.Compose([
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     min_max_l1[normal_class][0],
                     [ma - mi for ma, mi in zip(min_max_l1[normal_class][1], min_max_l1[normal_class][0])]
@@ -188,10 +201,8 @@ class ADMvTec(TorchvisionDataset):
                         transforms.ColorJitter(0.005, 0.0005, 0.0005, 0.0005),
                 ]),
                 transforms.ToTensor(),
-                transforms.Lambda(
-                    lambda x: (x + torch.randn_like(x).mul(np.random.randint(0, 2)).mul(x.std()).mul(0.1)).clamp(0, 1)
-                ),
-                transforms.Lambda(lambda x: local_contrast_normalization(x, scale='l1')),
+                transforms.Lambda(mvtec_awgn),
+                transforms.Lambda(local_contrast_normalization_func),
                 transforms.Normalize(
                     min_max_l1[normal_class][0],
                     [ma - mi for ma, mi in zip(min_max_l1[normal_class][1], min_max_l1[normal_class][0])]
@@ -201,7 +212,7 @@ class ADMvTec(TorchvisionDataset):
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         target_transform = transforms.Lambda(
-            lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
+            TargetTransFunctor(self.anomalous_label, self.outlier_classes, self.nominal_label)
         )
 
         if online_supervision:
@@ -225,7 +236,9 @@ class ADMvTec(TorchvisionDataset):
             test_set = MvTec(
                 root=self.root, split='test_anomaly_label_target', download=True,
                 target_transform=transforms.Lambda(
-                    lambda x: self.anomalous_label if x != MvTec.normal_anomaly_label_idx else self.nominal_label
+                    MvTecTestTargetTransFunctor(
+                        self.anomalous_label, MvTec.normal_anomaly_label_idx, self.nominal_label
+                    )
                 ),
                 img_gt_transform=img_gt_test_transform, transform=test_transform, shape=self.raw_shape,
                 normal_classes=self.normal_classes,
@@ -249,7 +262,9 @@ class ADMvTec(TorchvisionDataset):
             test_set = MvTec(
                 root=self.root, split='test_anomaly_label_target', download=True,
                 target_transform=transforms.Lambda(
-                    lambda x: self.anomalous_label if x != MvTec.normal_anomaly_label_idx else self.nominal_label
+                    MvTecTestTargetTransFunctor(
+                        self.anomalous_label, MvTec.normal_anomaly_label_idx, self.nominal_label
+                    )
                 ),
                 img_gt_transform=img_gt_test_transform, transform=test_transform, shape=self.raw_shape,
                 normal_classes=self.normal_classes,

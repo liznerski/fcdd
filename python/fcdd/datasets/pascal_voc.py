@@ -5,7 +5,7 @@ import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.online_superviser import OnlineSuperviser
-from fcdd.datasets.preprocessing import MultiCompose
+from fcdd.datasets.preprocessing import MultiCompose, AWGN
 from fcdd.util.logging import Logger
 from torchvision.datasets import VOCDetection
 
@@ -74,7 +74,7 @@ class ADPascalVoc(TorchvisionDataset):
                 transforms.ColorJitter(brightness=0.01, contrast=0.01, saturation=0.01, hue=0.01),
                 transforms.RandomCrop(self.shape[-1]),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 transforms.Normalize(mean, std)
             ])
         else:

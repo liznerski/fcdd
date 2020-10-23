@@ -7,6 +7,28 @@ from abc import abstractmethod
 from typing import Callable
 
 
+class TargetTransFunctor(object):
+    def __init__(self, anomalous_label: int, outlier_classes: [int], nominal_label: int):
+        self.anomalous_label = anomalous_label
+        self.outlier_classes = outlier_classes
+        self.nominal_label = nominal_label
+
+    def __call__(self, x):
+        return self.anomalous_label if x in self.outlier_classes else self.nominal_label
+
+
+class AWGN(object):
+    def __init__(self, std: float):
+        self.std = std
+
+    def __call__(self, x):
+        return x + self.std * torch.randn_like(x)
+
+
+def local_contrast_normalization_func(x):
+    return local_contrast_normalization(x, scale='l1')
+
+
 def get_target_label_idx(labels: np.ndarray, targets: np.ndarray):
     """
     Get the indices of labels that are included in targets.
