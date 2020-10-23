@@ -85,20 +85,23 @@ class TorchvisionDataset(BaseADDataset):
         """
         self.logprint('Generating dataset preview...')
         if train:
-            loader, _ = self.loaders(20, num_workers=4, shuffle_train=True)
+            loader, _ = self.loaders(10, num_workers=0, shuffle_train=True)
         else:
-            _, loader = self.loaders(20, num_workers=4, shuffle_test=True)
-        all_x, all_y, all_gts, out = [], [], [], []
+            _, loader = self.loaders(10, num_workers=0, shuffle_test=True)
+        x, y, gts, out = torch.FloatTensor(), torch.LongTensor(), torch.FloatTensor(), []
         if isinstance(self.train_set, GTMapADDataset):
-            for x, y, gts in loader:
-                all_x.append(x), all_y.append(y), all_gts.append(gts)
+            for xb, yb, gtsb in loader:
+                x, y, gts = torch.cat([x, xb]), torch.cat([y, yb]), torch.cat([gts, gtsb])
+                if all([x[y == c].size(0) >= percls for c in [0, 1]]):
+                    break
         else:
-            for x, y in loader:
-                all_x.append(x), all_y.append(y)
-        x, y, gts = torch.cat(all_x), torch.cat(all_y), torch.cat(all_gts) if len(all_gts) > 0 else None
+            for xb, yb in loader:
+                x, y = torch.cat([x, xb]), torch.cat([y, yb])
+                if all([x[y == c].size(0) >= percls for c in [0, 1]]):
+                    break
         for c in sorted(set(y.tolist())):
             out.append(x[y == c][:percls])
-        if gts is not None:
+        if len(gts) > 0:
             assert len(set(gts.reshape(-1).tolist())) <= 2, 'training process assumes zero-one gtmaps'
             out.append(torch.zeros_like(x[:percls]))
             for c in sorted(set(y.tolist())):

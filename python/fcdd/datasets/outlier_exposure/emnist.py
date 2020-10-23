@@ -60,7 +60,7 @@ class OEEMNIST(EMNIST):
             self.targets = self.targets[picks]
         if limit_var is not None and limit_var > len(self):
             print(
-                'OEEMNIST shall be limited to {} samples, but Cifar100 contains only {} samples, thus using all.'
+                'OEEMNIST shall be limited to {} samples, but EMNIST contains only {} samples, thus using all.'
                 .format(limit_var, len(self))
             )
         if len(self) < size[0]:

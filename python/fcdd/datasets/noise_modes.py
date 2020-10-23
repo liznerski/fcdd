@@ -41,10 +41,10 @@ def generate_noise(noise_mode: str, size: torch.Size, oe_limit: int,
         elif noise_mode in ['uniform']:
             generated_noise = (torch.rand(size)).mul(255)
         elif noise_mode in ['blob']:
-            generated_noise = confetti_noise(size, 0.002, ((6, 6), (6, 6)), fillval=255, clamp=False, awgn=0)
+            generated_noise = confetti_noise(size, 0.002, (6, 6), fillval=255, clamp=False, awgn=0)
         elif noise_mode in ['mixed_blob']:
-            generated_noise_rgb = confetti_noise(size, 0.00001, ((34, 34), (34, 34)), fillval=255, clamp=False, awgn=0)
-            generated_noise = confetti_noise(size, 0.00001, ((34, 34), (34, 34)), fillval=255, clamp=False, awgn=0)
+            generated_noise_rgb = confetti_noise(size, 0.00001, (34, 34), fillval=255, clamp=False, awgn=0)
+            generated_noise = confetti_noise(size, 0.00001, (34, 34), fillval=255, clamp=False, awgn=0)
             generated_noise_rgb = colorize_noise(generated_noise_rgb, (0, 0, 0), (255, 255, 255), p=1)
             generated_noise = generated_noise_rgb + generated_noise
         elif noise_mode in ['solid']:
