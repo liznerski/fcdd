@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
-from fcdd.datasets.online_superviser import OnlineSuperviser
+from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.outlier_exposure.imagenet import MyImageFolder
 from fcdd.datasets.preprocessing import get_target_label_idx
 from fcdd.util.logging import Logger
@@ -97,7 +97,7 @@ class ADImageNet(TorchvisionDataset):
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
         if supervise_mode not in ['unsupervised', 'other']:
-            all_transform = OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit)
+            all_transform = OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit)
         else:
             all_transform = None
 
@@ -170,7 +170,7 @@ class PathsMetaFileImageNet(MyImageFolder):
 
 
 class MyImageNet(PathsMetaFileImageNet):
-    """ ImageNet torch dataset extention, s.t. target_transform and online superviser is applied """
+    """ ImageNet torch dataset extention, s.t. target_transform and online supervisor is applied """
     # s = len([t for t in self.test_loader.dataset.dataset.targets if not np.isnan(t)])
     # order = np.random.choice(list(range(s)), replace=False, size=s)
     fixed_random_order = np.load(pt.join(ROOT, 'datasets', 'confs', 'imagenet30_test_random_order.npy'))

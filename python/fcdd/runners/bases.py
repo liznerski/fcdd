@@ -217,11 +217,19 @@ class ClassesRunner(SeedsRunner):
             cls_logdir = pt.join(logdir, 'normal_{}'.format(c))
             kwargs['logdir'] = cls_logdir
             kwargs['normal_class'] = c
-            res = self.run_seeds(
-               it, **kwargs
-            )
-            for key in res:
-                results[key].append(res[key])
+            try:
+                res = self.run_seeds(
+                   it, **kwargs
+                )
+                for key in res:
+                    results[key].append(res[key])
+            finally:
+                print('Plotting Many ROC for completed classes up to {}...'.format(c))
+                for key in results:
+                    plot_many_roc(
+                        logdir.replace('{t}', time_format(self.start)), results[key],
+                        labels=str_labels(kwargs['dataset']), mean=True, name=key
+                    )
         for key in results:
             plot_many_roc(
                 logdir.replace('{t}', time_format(self.start)), results[key],

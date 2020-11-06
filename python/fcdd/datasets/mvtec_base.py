@@ -109,7 +109,7 @@ class MvTec(VisionDataset, GTMapADDataset):
 
         if self.split == 'train' and self.gt is None:
             assert self.anom_label in [0, 1]
-            # gt is assumed to be 1 for anoms always (regardless of the anom_label), since the supervisers work that way
+            # gt is assumed to be 1 for anoms always (regardless of the anom_label), since the supervisors work that way
             # later code fixes that (and thus would corrupt it if the correct anom_label is used here in swapped case)
             gtinitlbl = label if self.anom_label == 1 else (1 - label)
             gt = (torch.ones_like(img)[0] * gtinitlbl).mul(255).byte()

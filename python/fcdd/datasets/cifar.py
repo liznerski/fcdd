@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
-from fcdd.datasets.online_superviser import OnlineSuperviser
+from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, BlackCenter
 from fcdd.util.logging import Logger
 from torchvision.datasets import CIFAR10
@@ -145,7 +145,7 @@ class ADCIFAR10(TorchvisionDataset):
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
         if online_supervision:
-            all_transform = MultiCompose([OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit), *all_transform])
+            all_transform = MultiCompose([OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit), *all_transform])
         else:
             all_transform = MultiCompose(all_transform)
 
@@ -164,7 +164,7 @@ class ADCIFAR10(TorchvisionDataset):
 
 
 class MYCIFAR10(CIFAR10):
-    """ Cifar-10 dataset extension, s.t. target_transform and online superviser is applied """
+    """ Cifar-10 dataset extension, s.t. target_transform and online supervisor is applied """
     def __init__(self, root, train=True, transform=None, target_transform=None,
                  download=False, all_transform=None, normal_classes=None):
         super().__init__(root, train, transform, target_transform, download)
@@ -181,10 +181,10 @@ class MYCIFAR10(CIFAR10):
         """
         img, target = self.data[index], self.targets[index]
 
-        if self.target_transform is not None:  # online superviser assumes target transform to be already applied
+        if self.target_transform is not None:  # online supervisor assumes target transform to be already applied
             target = self.target_transform(target)
 
-        # apply online superviser, if available
+        # apply online supervisor, if available
         if self.all_transform is not None:
             img, _, target = self.all_transform((img, None, target))
             img = img.sub(img.min()).div(img.max() - img.min()).mul(255).byte() if img.dtype != torch.uint8 else img

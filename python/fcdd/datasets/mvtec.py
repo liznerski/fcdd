@@ -5,7 +5,7 @@ from PIL import Image
 
 from fcdd.datasets.bases import TorchvisionDataset, GTSubset
 from fcdd.datasets.mvtec_base import MvTec
-from fcdd.datasets.online_superviser import OnlineSuperviser
+from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.preprocessing import local_contrast_normalization, MultiCompose, get_target_label_idx
 from fcdd.util.logging import Logger
 
@@ -209,7 +209,7 @@ class ADMvTec(TorchvisionDataset):
             assert supervise_mode not in ['supervised'], 'supervised mode works only offline'
             all_transform = MultiCompose([
                 *all_transform,
-                OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
+                OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit),
             ])
             train_set = MvTec(
                 root=self.root, split='train', download=True,
