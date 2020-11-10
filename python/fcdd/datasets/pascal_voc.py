@@ -4,7 +4,7 @@ import PIL.Image as Image
 import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
-from fcdd.datasets.online_superviser import OnlineSuperviser
+from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.preprocessing import MultiCompose, AWGN
 from fcdd.util.logging import Logger
 from torchvision.datasets import VOCDetection
@@ -83,7 +83,7 @@ class ADPascalVoc(TorchvisionDataset):
         if online_supervision:
             all_transform = MultiCompose([
                 # in case of OutlierExposure with ImageNet, exclude VOC names from classes!
-                OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit, exclude=MyPascalVoc.NAMES),
+                OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit, exclude=MyPascalVoc.NAMES),
                 *all_transform
             ])
         else:
@@ -102,7 +102,7 @@ class ADPascalVoc(TorchvisionDataset):
 
 
 class MyPascalVoc(VOCDetection):
-    """ PascalVoc dataset extension, s.t. target_transform and online superviser is applied """
+    """ PascalVoc dataset extension, s.t. target_transform and online supervisor is applied """
     NAMES = [
         'person', 'bird', 'cat', 'cow', 'dog', 'horse', 'sheep', 'aeroplane', 'bicycle', 'boat', 'bus',
         'car', 'motorbike', 'train', 'bottle', 'chair', 'table', 'plant', 'sofa', 'tv', 'monitor'
@@ -132,10 +132,10 @@ class MyPascalVoc(VOCDetection):
         img = Image.open(self.images[index]).convert('RGB')
         target = self.targets[index]
 
-        if self.target_transform is not None:  # online superviser assumes target transform to be already applied
+        if self.target_transform is not None:  # online supervisor assumes target transform to be already applied
             target = self.target_transform(target)
 
-        # apply online superviser, if available
+        # apply online supervisor, if available
         if self.all_transform is not None:
             img, _, target = self.all_transform((transforms.ToTensor()(img), None, target))
             if isinstance(img, torch.Tensor):

@@ -170,10 +170,13 @@ class Logger(object):
             self.t = time.time()
             save_epoch(epoch)
             self.print(
-                'EPOCH {:02d} NBAT {:04d}/{:04d} ERR {:01f} INFO {}'
+                'EPOCH {:02d} NBAT {:04d}/{:04d} ERR {:01f} {} INFO {}'
                 .format(
                     epoch, nbat, batches,
                     self.history['err'][epoch],
+                    ' '.join([
+                        '{:4} {:01f}'.format(k.upper()[:13], self.history[k][epoch]) for k in self.__further_keys
+                    ]),
                     infoprint
                 )
             )

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 from fcdd.datasets.noise_modes import generate_noise
-from fcdd.datasets.offline_superviser import noise as apply_noise, malformed_normal as apply_malformed_normal
+from fcdd.datasets.offline_supervisor import noise as apply_noise, malformed_normal as apply_malformed_normal
 from fcdd.datasets.preprocessing import get_target_label_idx
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
@@ -84,10 +84,11 @@ class TorchvisionDataset(BaseADDataset):
         :return: a Tensor of images (n x c x h x w)
         """
         self.logprint('Generating dataset preview...')
+        # assert num_workers>0, otherwise the OnlineSupervisor is initialized with the same shuffling in later workers
         if train:
-            loader, _ = self.loaders(10, num_workers=0, shuffle_train=True)
+            loader, _ = self.loaders(10, num_workers=1, shuffle_train=True)
         else:
-            _, loader = self.loaders(10, num_workers=0, shuffle_test=True)
+            _, loader = self.loaders(10, num_workers=1, shuffle_test=True)
         x, y, gts, out = torch.FloatTensor(), torch.LongTensor(), torch.FloatTensor(), []
         if isinstance(self.train_set, GTMapADDataset):
             for xb, yb, gtsb in loader:

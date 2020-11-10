@@ -12,7 +12,7 @@ from fcdd.datasets.outlier_exposure.mvtec import OEMvTec
 from fcdd.datasets.preprocessing import ImgGTTargetTransform
 
 
-class OnlineSuperviser(ImgGTTargetTransform):
+class OnlineSupervisor(ImgGTTargetTransform):
     invert_threshold = 0.025
 
     def __init__(self, ds: TorchvisionDataset, supervise_mode: str, noise_mode: str, oe_limit: int = np.infty,
@@ -21,11 +21,11 @@ class OnlineSuperviser(ImgGTTargetTransform):
         This class is used as a Transform parameter for torchvision datasets.
         During training it randomly replaces a sample of the dataset retrieved via the get_item method
         by an artificial anomaly.
-        :param ds: some AD dataset for which the OnlineSuperviser is used.
+        :param ds: some AD dataset for which the OnlineSupervisor is used.
         :param supervise_mode: the type of artificial anomalies to be generated during training.
             See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
         :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
-            In addition to the offline noise modes, the OnlineSuperviser offers Outlier Exposure with MVTec-AD.
+            In addition to the offline noise modes, the OnlineSupervisor offers Outlier Exposure with MVTec-AD.
             The oe_limit parameter for MVTec-AD limits the number of different samples per defection type
             (including "good" instances, i.e. nominal ones in the test set).
         :param oe_limit: the number of different Outlier Exposure samples used in case of outlier exposure based noise.
@@ -98,7 +98,7 @@ class OnlineSuperviser(ImgGTTargetTransform):
                 except RuntimeError:
                     generated_noise = next(self.noise_sampler)
                     self.ds.logger.warning(
-                        'Had to resample in online_superviser __call__ next(self.noise_sampler) because of {}'
+                        'Had to resample in online_supervisor __call__ next(self.noise_sampler) because of {}'
                         .format(traceback.format_exc())
                     )
                 if isinstance(generated_noise, (tuple, list)):

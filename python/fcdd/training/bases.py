@@ -553,7 +553,7 @@ class BaseADTrainer(BaseTrainer):
 
     def _image_processing(self, imgs: Tensor, input_shape: torch.Size, blur: bool = False, maxres: int = 64,
                           qu: float = None, norm: str = 'local', colorize: bool = False, ref: Tensor = None,
-                          cmap: str = 'jet', inplace: bool = True) -> Tensor:
+                          cmap: str = 'jet') -> Tensor:
         """
         Applies basic image processing techniques, including resizing, blurring, colorizing, and normalizing.
         The resize operation resizes the images automatically to match the input_shape. Other transformations
@@ -571,11 +571,9 @@ class BaseADTrainer(BaseTrainer):
         :param colorize: whether to colorize grayscaled images using colormaps (-> pseudocolored heatmaps!).
         :param ref: a tensor of images used for global normalization (defaults to imgs).
         :param cmap: the colormap that is used to colorize grayscaled images.
-        :param inplace: whether to perform the operations inplace.
         :return: transformed tensor of images
         """
-        if not inplace:
-            imgs = deepcopy(imgs)
+        imgs = imgs.detach().clone()
         assert imgs.dim() == len(input_shape) == 4  # n x c x h x w
         std = self.gauss_std
         if qu is None:

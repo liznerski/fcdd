@@ -2,7 +2,7 @@ import PIL.Image as Image
 import torch
 import torchvision.transforms as transforms
 from fcdd.datasets.bases import TorchvisionDataset
-from fcdd.datasets.online_superviser import OnlineSuperviser
+from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.preprocessing import MultiCompose, TargetTransFunctor, AWGN, local_contrast_normalization_func
 from fcdd.util.logging import Logger
 from torchvision.datasets import FashionMNIST
@@ -136,12 +136,12 @@ class ADFMNIST(TorchvisionDataset):
             if noise_mode not in ['emnist']:
                 self.raw_shape = (1, 28, 28)
                 all_transform = MultiCompose([
-                    OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
+                    OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit),
                     transforms.Lambda(supervision_func)
                 ])
             else:
                 all_transform = MultiCompose([
-                    OnlineSuperviser(self, supervise_mode, noise_mode, oe_limit),
+                    OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit),
                 ])
             self.raw_shape = (28, 28)
 
@@ -158,7 +158,7 @@ class ADFMNIST(TorchvisionDataset):
 
 
 class MyFashionMNIST(FashionMNIST):
-    """ Fashion-MNIST dataset extension, s.t. target_transform and online superviser is applied """
+    """ Fashion-MNIST dataset extension, s.t. target_transform and online supervisor is applied """
     def __init__(self, root, train=True, transform=None, target_transform=None,
                  download=False, normal_classes=None, all_transform=None):
         super().__init__(root, train, transform, target_transform, download)
@@ -171,7 +171,7 @@ class MyFashionMNIST(FashionMNIST):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        # apply online superviser, if available
+        # apply online supervisor, if available
         if self.all_transform is not None:
             img, _, target = self.all_transform((img, None, target))
             img = img.sub(img.min()).div(img.max() - img.min()).mul(255).byte() if img.dtype != torch.uint8 else img
