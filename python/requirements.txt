@@ -7,7 +7,7 @@ six==1.14.0
 scipy==1.4.1
 scikit-image==0.16.2
 scikit-learn==0.22.1
-Pillow==7.0.0
+Pillow==7.1.0
 pprofile==2.0.2
 psutil==5.7.0
 pyparsing==2.4.6
