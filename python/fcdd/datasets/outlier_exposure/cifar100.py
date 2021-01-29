@@ -78,10 +78,10 @@ class OECifar100(MYCIFAR100):
                     .format(limit_var, size[0], rep, len(self), size[0])
                 )
 
-    def data_loader(self):
+    def data_loader(self) -> DataLoader:
         return DataLoader(dataset=self, batch_size=self.size[0], shuffle=True, num_workers=0)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> torch.Tensor:
         sample, target = super().__getitem__(index)
         sample = sample.mul(255).byte()
 

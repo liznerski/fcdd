@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import PIL.Image as Image
 import torch
 import torchvision.transforms as transforms
@@ -160,7 +162,7 @@ class MyFashionMNIST(FashionMNIST):
         self.all_transform = all_transform
         self.normal_classes = normal_classes
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         img, target = self.data[index], int(self.targets[index])
 
         if self.target_transform is not None:

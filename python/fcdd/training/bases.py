@@ -1,27 +1,27 @@
 import collections
 import os.path as pt
 from abc import abstractmethod, ABC
-from copy import deepcopy
+from typing import List, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import Tensor
-from torch.optim.optimizer import Optimizer
-from torch.optim.lr_scheduler import _LRScheduler
-from torch.utils.data.dataloader import DataLoader
-from torch.utils.data.dataset import Dataset
 from fcdd.datasets.bases import GTMapADDataset
 from fcdd.datasets.noise import kernel_size_to_std
 from fcdd.models.bases import BaseNet, ReceptiveNet
-from fcdd.util.logging import colorize as colorize_img, Logger
 from fcdd.training import balance_labels
+from fcdd.util.logging import colorize as colorize_img, Logger
 from kornia import gaussian_blur2d
 from sklearn.metrics import roc_auc_score, roc_curve
+from torch import Tensor
+from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.optimizer import Optimizer
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.dataset import Dataset
 
 
-def reorder(labels: [int], loss: Tensor, anomaly_scores: Tensor, imgs: Tensor, outputs: Tensor, gtmaps: Tensor,
-            grads: Tensor, ds: Dataset = None) -> ([int], Tensor, Tensor, Tensor, Tensor, Tensor, Tensor):
+def reorder(labels: List[int], loss: Tensor, anomaly_scores: Tensor, imgs: Tensor, outputs: Tensor, gtmaps: Tensor,
+            grads: Tensor, ds: Dataset = None) -> Tuple[List[int], Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """ returns all inputs in an identical new order if the dataset offers a predefined (random) order """
     if ds is not None and hasattr(ds, 'fixed_random_order'):
         assert gtmaps is None, \
@@ -35,7 +35,7 @@ def reorder(labels: [int], loss: Tensor, anomaly_scores: Tensor, imgs: Tensor, o
 
 
 class BaseTrainer(ABC):
-    def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
+    def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: Tuple[DataLoader, DataLoader],
                  logger: Logger, device='cuda:0', **kwargs):
         """
         Base class for trainers, defines a simple train method and a method to load snapshots.
@@ -111,7 +111,7 @@ class BaseTrainer(ABC):
 
 
 class BaseADTrainer(BaseTrainer):
-    def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
+    def __init__(self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: Tuple[DataLoader, DataLoader],
                  logger: Logger, objective: str, gauss_std: float, quantile: float, resdown: int, blur_heatmaps=False,
                  device='cuda:0', **kwargs):
         """
@@ -204,7 +204,7 @@ class BaseADTrainer(BaseTrainer):
             self.sched.step()
         return self.net
 
-    def test(self, specific_viz_ids: ([int], [int]) = ()) -> dict:
+    def test(self, specific_viz_ids: Tuple[List[int], List[int]] = ()) -> dict:
         """
         Does a full iteration of the data loaders, remembers all data (i.e. inputs, labels, outputs, loss),
         and computes scores and heatmaps with it. Scores and heatmaps are computed for both, the training
@@ -261,7 +261,7 @@ class BaseADTrainer(BaseTrainer):
         return sc
 
     def _gather_data(self, loader: DataLoader,
-                     gather_all=False) -> ([int], Tensor, Tensor, Tensor, Tensor, Tensor, Tensor):
+                     gather_all=False) -> Tuple[List[int], Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
         all_labels, all_loss, all_anomaly_scores, all_imgs, all_outputs = [], [], [], [], []
         all_gtmaps, all_grads = [], []
         for n_batch, data in enumerate(loader):
@@ -307,7 +307,7 @@ class BaseADTrainer(BaseTrainer):
         )
         return ret
 
-    def _regular_forward(self, inputs: Tensor, labels: Tensor) -> (Tensor, Tensor, Tensor, Tensor):
+    def _regular_forward(self, inputs: Tensor, labels: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         with torch.no_grad():
             outputs = self.net(inputs)
             loss = self.loss(outputs, inputs, labels, reduce='none')
@@ -315,7 +315,7 @@ class BaseADTrainer(BaseTrainer):
             grads = None
         return outputs, loss, anomaly_score, grads
 
-    def _grad_forward(self, inputs: Tensor, labels: Tensor) -> (Tensor, Tensor, Tensor, Tensor):
+    def _grad_forward(self, inputs: Tensor, labels: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         inputs.requires_grad = True
         outputs = self.net(inputs)
         loss = self.loss(outputs, inputs, labels, reduce='none')
@@ -325,7 +325,7 @@ class BaseADTrainer(BaseTrainer):
         self.opt.zero_grad()
         return outputs, loss, anomaly_score, grads
 
-    def score(self, labels: [int], ascores: Tensor, imgs: Tensor, outs: Tensor, gtmaps: Tensor = None,
+    def score(self, labels: List[int], ascores: Tensor, imgs: Tensor, outs: Tensor, gtmaps: Tensor = None,
               grads: Tensor = None, subdir='.') -> dict:
         """
         Computes the ROC curves and the AUC for detection performance.
@@ -387,9 +387,9 @@ class BaseADTrainer(BaseTrainer):
 
         return {'roc': roc_res, 'gtmap_roc': gtmap_roc_res}
 
-    def heatmap_generation(self, labels: [int], ascores: Tensor, imgs: Tensor,
+    def heatmap_generation(self, labels: List[int], ascores: Tensor, imgs: Tensor,
                            gtmaps: Tensor = None, grads: Tensor = None, show_per_cls: int = 20,
-                           name='heatmaps', specific_idx: ([int], [int]) = (), subdir='.'):
+                           name='heatmaps', specific_idx: Tuple[List[int], List[int]] = (), subdir='.'):
         show_per_cls = min(show_per_cls, min(collections.Counter(labels).values()))
         if show_per_cls % 2 != 0:
             show_per_cls -= 1
@@ -441,9 +441,9 @@ class BaseADTrainer(BaseTrainer):
                         res, imgs, ascores, grads, gtmaps, labels
                     )
 
-    def _create_heatmaps_picture(self, idx: [int], name: str, inpshp: torch.Size, subdir: str,
+    def _create_heatmaps_picture(self, idx: List[int], name: str, inpshp: torch.Size, subdir: str,
                                  nrow: int, imgs: Tensor, ascores: Tensor, grads: Tensor, gtmaps: Tensor,
-                                 labels: [int], norm: str = 'global'):
+                                 labels: List[int], norm: str = 'global'):
         """
         Creates a picture of inputs, heatmaps (either based on ascores or grads, if grads is not None),
         and ground-truth maps (if not None, otherwise omitted). Each row contains nrow many samples.
@@ -506,9 +506,9 @@ class BaseADTrainer(BaseTrainer):
         name = '{}_{}'.format(name, norm)
         self.logger.imsave(name, torch.cat(rows), nrow=nrow, scale_mode='none', subdir=subdir)
 
-    def _create_singlerow_heatmaps_picture(self, idx: [int], name: str, inpshp: torch.Size, lbl: int, subdir: str,
+    def _create_singlerow_heatmaps_picture(self, idx: List[int], name: str, inpshp: torch.Size, lbl: int, subdir: str,
                                            res: int, imgs: Tensor, ascores: Tensor, grads: Tensor, gtmaps: Tensor,
-                                           labels: [int]):
+                                           labels: List[int]):
         """
         Creates a picture of inputs, heatmaps (either based on ascores or grads, if grads is not None),
         and ground-truth maps (if not None, otherwise omitted).

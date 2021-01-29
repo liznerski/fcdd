@@ -1,8 +1,10 @@
+from typing import List, Tuple
+
 import torch
 from fcdd.models.bases import FCDDNet, BaseNet
+from fcdd.training.ae import AETrainer
 from fcdd.training.fcdd import FCDDTrainer
 from fcdd.training.hsc import HSCTrainer
-from fcdd.training.ae import AETrainer
 from fcdd.util.logging import Logger
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
@@ -11,7 +13,7 @@ from torch.utils.data.dataloader import DataLoader
 
 class SuperTrainer(object):
     def __init__(
-            self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: (DataLoader, DataLoader),
+            self, net: BaseNet, opt: Optimizer, sched: _LRScheduler, dataset_loaders: Tuple[DataLoader, DataLoader],
             logger: Logger, device=torch.device('cuda:0'), objective='fcdd',
             quantile=0.93, resdown=64, gauss_std: float = None, blur_heatmaps=True
     ):
@@ -83,7 +85,7 @@ class SuperTrainer(object):
             self.logger.plot()
             self.trainer.snapshot(epochs)
 
-    def test(self, specific_viz_ids: ([int], [int]) = ()) -> dict:
+    def test(self, specific_viz_ids: Tuple[List[int], List[int]] = ()) -> dict:
         """
         Tests the model, i.e. computes scores and heatmaps and stores them in the log directory.
         For details see :meth:`fcdd.training.bases.BaseTrainer.test`.

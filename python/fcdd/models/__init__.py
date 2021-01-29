@@ -1,21 +1,23 @@
+import inspect
+import sys
+from typing import List, Dict, Tuple
+
 from fcdd.models.shallow_cnn_28 import *
 from fcdd.models.shallow_cnn_32 import *
 from fcdd.models.shallow_cnn_224 import *
 from fcdd.models.fcdd_cnn_28 import *
 from fcdd.models.fcdd_cnn_32 import *
 from fcdd.models.fcdd_cnn_224 import *
-import inspect
-import sys
 
 
-def choices() -> [str]:
+def choices() -> List[str]:
     """ returns all model names """
     members = inspect.getmembers(sys.modules[__name__])
     clsses = [name for name, obj in members if inspect.isclass(obj)]
     return clsses
 
 
-def all_nets() -> {str: (torch.nn.Module, type)}:
+def all_nets() -> Dict[str, Tuple[torch.nn.Module, type]]:
     """ returns a mapping form model names to a tuple of (model instance, corresponding AE class) """
     members = inspect.getmembers(sys.modules[__name__])
     clsses = {
@@ -25,7 +27,7 @@ def all_nets() -> {str: (torch.nn.Module, type)}:
     return clsses
 
 
-def load_nets(name: str, in_shape: [int], bias=False, **kwargs) -> torch.nn.Module:
+def load_nets(name: str, in_shape: List[int], bias=False, **kwargs) -> torch.nn.Module:
     """
     Creates an instance of a network architecture.
     :param name: name of the model of which an instance is to be created.

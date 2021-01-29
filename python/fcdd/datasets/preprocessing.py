@@ -1,10 +1,11 @@
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as TF
-import torch
-import numpy as np
 import random
 from abc import abstractmethod
-from typing import Callable
+from typing import Callable, List
+
+import numpy as np
+import torch
+import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
 
 
 def get_target_label_idx(labels: np.ndarray, targets: np.ndarray):
@@ -48,13 +49,13 @@ class MultiCompose(transforms.Compose):
     More importantly, for random transformations (like RandomCrop), applies the same choice of transformation, i.e.
     e.g. the same crop for all variables.
     """
-    def __call__(self, imgs: []):
+    def __call__(self, imgs: List):
         for t in self.transforms:
             imgs = list(imgs)
             imgs = self.__multi_apply(imgs, t)
         return imgs
 
-    def __multi_apply(self, imgs: [], t: Callable):
+    def __multi_apply(self, imgs: List, t: Callable):
         if isinstance(t, transforms.RandomCrop):
             for idx, img in enumerate(imgs):
                 if t.padding is not None and t.padding > 0:
@@ -123,7 +124,7 @@ class ImgGtTransform(MultiTransform):
 
 
 class LabelConditioner(ImgGTTargetTransform):
-    def __init__(self, conds: [int], t1: Callable, t2: Callable):
+    def __init__(self, conds: List[int], t1: Callable, t2: Callable):
         """
         Applies transformation t1 if the encountered label is in conds, otherwise applies transformation t2.
         :param conds: list of labels

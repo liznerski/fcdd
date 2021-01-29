@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import torch
 from kornia import gaussian_blur2d
@@ -40,10 +42,11 @@ def gkern(k: int, std: float = None):
     return gkern2d
 
 
-def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int), (int, int)) = ((3, 3), (5, 5)),
+def confetti_noise(size: torch.Size, p: float = 0.01,
+                   blobshaperange: Tuple[Tuple[int, int], Tuple[int, int]] = ((3, 3), (5, 5)),
                    fillval: int = 255, backval: int = 0, ensureblob: bool = True, awgn: float = 0.0,
                    clamp: bool = False, onlysquared: bool = True, rotation: int = 0,
-                   colorrange: (int, int) = None) -> torch.Tensor:
+                   colorrange: Tuple[int, int] = None) -> torch.Tensor:
     """
     Generates "confetti" noise, as seen in the paper.
     The noise is based on sampling randomly many rectangles (in the following called blobs) at random positions.
@@ -158,8 +161,8 @@ def confetti_noise(size: torch.Size, p: float = 0.01, blobshaperange: ((int, int
     return res
 
 
-def colorize_noise(img: torch.Tensor, color_min: (int, int, int) = (-255, -255, -255),
-                   color_max: (int, int, int) = (255, 255, 255), p: float = 1) -> torch.Tensor:
+def colorize_noise(img: torch.Tensor, color_min: Tuple[int, int, int] = (-255, -255, -255),
+                   color_max: Tuple[int, int, int] = (255, 255, 255), p: float = 1) -> torch.Tensor:
     """
     Colorizes given noise images by asserting random color values to pixels that are not black (zero).
     :param img: torch tensor (n x c x h x w)

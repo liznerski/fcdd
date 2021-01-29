@@ -1,6 +1,7 @@
 import os
 import os.path as pt
 import random
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -182,7 +183,7 @@ class MyImageNet(PathsMetaFileImageNet):
         self.all_transform = all_transform
         self.split = split
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         target = self.targets[index]
 
         if self.target_transform is not None:
@@ -206,5 +207,5 @@ class MyImageNet(PathsMetaFileImageNet):
 
         return img, target
 
-    def get_class_idx(self, classes):
+    def get_class_idx(self, classes: List[str]):
         return [self.class_to_idx[c] for c in classes]

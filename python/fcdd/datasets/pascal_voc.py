@@ -1,4 +1,5 @@
 import sys
+from typing import Tuple
 
 import PIL.Image as Image
 import torch
@@ -121,7 +122,7 @@ class MyPascalVoc(VOCDetection):
             ) for index in range(len(self.annotations))
         ]
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         """
         Args:
             index (int): Index

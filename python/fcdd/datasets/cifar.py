@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import torch
 import torchvision.transforms as transforms
@@ -171,7 +173,7 @@ class MYCIFAR10(CIFAR10):
         self.all_transform = all_transform
         self.normal_classes = normal_classes
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         """
         Args:
             index (int): Index

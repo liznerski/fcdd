@@ -33,8 +33,9 @@ target/
 # mypy
 .mypy_cache/
 
-# Pycharm
+# Pycharm and VSCode
 .idea
+.vscode
 
 # CMake
 cmake-build-debug/

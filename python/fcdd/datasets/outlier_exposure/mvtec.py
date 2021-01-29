@@ -5,6 +5,7 @@ from fcdd.datasets.mvtec_base import MvTec
 from fcdd.datasets.preprocessing import MultiCompose, get_target_label_idx
 from fcdd.util.logging import Logger
 from torch.utils.data import DataLoader
+from typing import List, Tuple, Union
 
 
 def ceil(x: float):
@@ -12,7 +13,7 @@ def ceil(x: float):
 
 
 class OEMvTec(MvTec):
-    def __init__(self, size: torch.Size, clsses: [int], root: str = None, limit_var: int = np.infty,
+    def __init__(self, size: torch.Size, clsses: List[int], root: str = None, limit_var: int = np.infty,
                  limit_per_anomaly=True, download=True, logger: Logger = None, gt=False, remove_nominal=True):
         """
         Outlier Exposure dataset for MVTec-AD. Considers only a part of the classes.
@@ -79,13 +80,13 @@ class OEMvTec(MvTec):
         if len(self) < size[0]:
             raise NotImplementedError()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.picks if self.picks is not None else self.targets)
 
-    def data_loader(self):
+    def data_loader(self) -> DataLoader:
         return DataLoader(dataset=self, batch_size=self.size[0], shuffle=True, num_workers=0)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         index = self.picks[index] if self.picks is not None else index
 
         image, label, gt = super().__getitem__(index)
@@ -96,7 +97,7 @@ class OEMvTec(MvTec):
         else:
             return image
 
-    def logprint(self, s, fps=True):
+    def logprint(self, s: str, fps=True):
         if self.logger is not None:
             self.logger.print(s, fps=fps)
         else:
