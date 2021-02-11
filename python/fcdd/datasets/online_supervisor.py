@@ -1,6 +1,7 @@
 import random
 import traceback
 from itertools import cycle
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -16,7 +17,7 @@ class OnlineSupervisor(ImgGTTargetTransform):
     invert_threshold = 0.025
 
     def __init__(self, ds: TorchvisionDataset, supervise_mode: str, noise_mode: str, oe_limit: int = np.infty,
-                 p: float = 0.5, exclude: [str] = ()):
+                 p: float = 0.5, exclude: List[str] = ()):
         """
         This class is used as a Transform parameter for torchvision datasets.
         During training it randomly replaces a sample of the dataset retrieved via the get_item method
@@ -69,7 +70,7 @@ class OnlineSupervisor(ImgGTTargetTransform):
             ).data_loader()
 
     def __call__(self, img: torch.Tensor, gt: torch.Tensor, target: int,
-                 replace: bool = None) -> (torch.Tensor, torch.Tensor, int):
+                 replace: bool = None) -> Tuple[torch.Tensor, torch.Tensor, int]:
         """
         Based on the probability defined in __init__, replaces (img, gt, target) with an artificial anomaly.
         :param img: some torch tensor image

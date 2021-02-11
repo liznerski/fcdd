@@ -3,10 +3,11 @@ import os
 import os.path as pt
 import re
 import sys
-import time
 import tarfile
+import time
 from collections import defaultdict
 from datetime import datetime
+from typing import List, Tuple, Any
 
 import cv2
 import matplotlib
@@ -14,12 +15,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchvision.utils as vutils
-from torch import Tensor
 from fcdd.util import DefaultList, CircleList, NumpyEncoder
 from fcdd.util.metrics import mean_roc
 from matplotlib import cm
-from torch.optim.optimizer import Optimizer
+from torch import Tensor
 from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.optimizer import Optimizer
 
 MARKERS = ('.', 'x', '*', '+', 's', 'v', 'D', '1', 'p', '8', '2', '3', '4', '^', '<', '>', 'P', 'X', 'd', '|', '_')
 
@@ -34,12 +35,12 @@ def get_cmarker(totallen: int, lencolors=10):
     return list(zip(colors, markers))[:totallen]
 
 
-def time_format(i: float):
+def time_format(i: float) -> str:
     """ takes a timestamp (seconds since epoch) and transforms that into a datetime string representation """
     return datetime.fromtimestamp(i).strftime('%Y%m%d%H%M%S')
 
 
-def colorize(imgs: [Tensor], norm=True, rgb=True, cmap='jet') -> [Tensor]:
+def colorize(imgs: List[Tensor], norm=True, rgb=True, cmap='jet') -> List[Tensor]:
     """
     For tensors of grayscaled images (n x 1 x h x w),
     colorizes each image of each tensor by using a colormap that maps [0, 1] -> [0, 1]^3.
@@ -261,7 +262,7 @@ class Logger(object):
         with open(outfile, 'w') as writer:
             writer.write(txt)
 
-    def single_save(self, name, dic, subdir='.'):
+    def single_save(self, name: str, dic: Any, subdir='.'):
         """
         Writes a given dictionary to a json file in the log directory.
         Returns without impact if the size of the dictionary exceeds 10MB.
@@ -318,8 +319,8 @@ class Logger(object):
             plt.savefig(outfile.replace('err.pdf', '{}.pdf'.format(k)))
             plt.close()
 
-    def single_plot(self, name: str, values: [float], xs: [float] = None,
-                    xlabel: str = None, ylabel: str = None, legend: list = (), subdir='.'):
+    def single_plot(self, name: str, values: List[float], xs: List[float] = None,
+                    xlabel: str = None, ylabel: str = None, legend: List = (), subdir='.'):
         """
         Plots given values and writes the plot to a pdf file in the log directory.
         :param name: the name of the pdf file
@@ -347,7 +348,8 @@ class Logger(object):
         plt.close()
 
     def imsave(self, name: str, tensors: Tensor, subdir='.', nrow=8, scale_mode='each',
-               rowheaders: [str] = None, pad=2, row_sep_at: (int, int) = (None, None), colcounter: [str] = None):
+               rowheaders: List[str] = None, pad=2, row_sep_at: Tuple[int, int] = (None, None),
+               colcounter: List[str] = None):
         """
         Interprets a tensor (n x c x h x w) as a grid of images and writes this to a png file.
         :param name: the name of the png file
@@ -535,7 +537,7 @@ class Logger(object):
             self.logger.print('{} took {} seconds.'.format(self.msg, time.time() - self.start))
 
 
-def plot_many_roc(logdir: str, results: [dict], labels: [str] = None, name: str = 'roc', mean: bool = False):
+def plot_many_roc(logdir: str, results: List[dict], labels: List[str] = None, name: str = 'roc', mean: bool = False):
     """
     Plots the ROCs of different training runs together in one plot and writes that to a pdf file in the log directory.
     The ROCs are given in form of result dictionaries {'tpr': [], 'fpr': [], 'ths': [], 'auc': int, ...},

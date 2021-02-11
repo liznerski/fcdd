@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
+from typing import Tuple
 
 import numpy as np
 import torch
 from fcdd.datasets.noise_modes import generate_noise
 from fcdd.datasets.offline_supervisor import noise as apply_noise, malformed_normal as apply_malformed_normal
 from fcdd.datasets.preprocessing import get_target_label_idx
+from fcdd.util.logging import Logger
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
 from torch.utils.data.dataset import Dataset
-from fcdd.util.logging import Logger
 
 
 class BaseADDataset(ABC):
@@ -31,8 +32,8 @@ class BaseADDataset(ABC):
         self.logger = logger
 
     @abstractmethod
-    def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0) -> (
-            DataLoader, DataLoader):
+    def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0) -> Tuple[
+            DataLoader, DataLoader]:
         """ Implement data loaders of type torch.utils.data.DataLoader for train_set and test_set. """
         pass
 
@@ -62,7 +63,7 @@ class TorchvisionDataset(BaseADDataset):
         super().__init__(root, logger=logger)
 
     def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0)\
-            -> (DataLoader, DataLoader):
+            -> Tuple[DataLoader, DataLoader]:
         assert not shuffle_test, \
             'using shuffled test raises problems with original GT maps for GT datasets, thus disabled atm!'
         # classes = None means all classes
@@ -168,7 +169,7 @@ class TorchvisionDataset(BaseADDataset):
         if supervise_mode not in ['unsupervised', 'other']:
             self.logprint('Artificial anomalies generated.')
 
-    def _generate_noise(self, noise_mode: str, size: torch.Size, oe_limit: int = None, datadir: str = None):
+    def _generate_noise(self, noise_mode: str, size: torch.Size, oe_limit: int = None, datadir: str = None) -> torch.Tensor:
         generated_noise = generate_noise(noise_mode, size, oe_limit, logger=self.logger, datadir=datadir)
         return generated_noise
 
@@ -223,7 +224,7 @@ class GTMapADDatasetExtension(GTMapADDataset):
     def data(self):
         return self.ds.data
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         gtmap = self.extended_gtmaps[index]
 
         if isinstance(self.ds, GTMapADDataset):

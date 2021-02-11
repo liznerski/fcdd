@@ -1,8 +1,10 @@
+from typing import List
+
 import torch
 from torch.utils.data.dataset import Dataset
 
 
-def noise(outlier_classes: [int], generated_noise: torch.Tensor, norm: torch.Tensor,
+def noise(outlier_classes: List[int], generated_noise: torch.Tensor, norm: torch.Tensor,
           nom_class: int, train_set: Dataset, gt: bool = False) -> Dataset:
     """
     Creates a dataset based on the nominal classes of a given dataset and generated noise anomalies.
@@ -27,7 +29,7 @@ def noise(outlier_classes: [int], generated_noise: torch.Tensor, norm: torch.Ten
     return train_set
 
 
-def malformed_normal(outlier_classes: [int], generated_noise: torch.Tensor, norm: torch.Tensor, nom_class: int,
+def malformed_normal(outlier_classes: List[int], generated_noise: torch.Tensor, norm: torch.Tensor, nom_class: int,
                      train_set: Dataset, gt: bool = False, brightness_threshold: float = 0.11*255) -> Dataset:
     """
     Creates a dataset based on the nominal classes of a given dataset and generated noise anomalies.

@@ -1,10 +1,12 @@
-import torch
-import numpy as np
 import random
+from typing import List
+
+import numpy as np
+import torch
 from torch import Tensor
 
 
-def balance_labels(data: Tensor, labels: [int], err=True) -> Tensor:
+def balance_labels(data: Tensor, labels: List[int], err=True) -> Tensor:
     """ balances data by removing samples for the more frequent label until both labels have equally many samples """
     lblset = list(set(labels))
     if err:

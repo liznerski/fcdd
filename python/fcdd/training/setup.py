@@ -1,19 +1,20 @@
 import os.path as pt
+from typing import List
 
 import torch
 import torch.optim as optim
-from fcdd.models.bases import BaseNet
 from fcdd.datasets import load_dataset
 from fcdd.datasets.bases import GTMapADDataset
 from fcdd.datasets.noise_modes import MODES
 from fcdd.models import load_nets
+from fcdd.models.bases import BaseNet
 from fcdd.util.logging import Logger
 
 OBJECTIVES = ('fcdd', 'hsc', 'ae')
 SUPERVISE_MODES = ('unsupervised', 'other', 'noise', 'malformed_normal', 'malformed_normal_gt')
 
 
-def pick_opt_sched(net: BaseNet, lr: float, wdk: float, sched_params: [float], opt: str, sched: str):
+def pick_opt_sched(net: BaseNet, lr: float, wdk: float, sched_params: List[float], opt: str, sched: str):
     """
     Creates an optimizer and learning rate scheduler based on the given parameters.
     :param net: some neural network.
@@ -49,7 +50,7 @@ def pick_opt_sched(net: BaseNet, lr: float, wdk: float, sched_params: [float], o
 
 def trainer_setup(
         dataset: str, datadir: str, logdir: str, net: str, bias: bool,
-        learning_rate: float, weight_decay: float, lr_sched_param: [float], batch_size: int,
+        learning_rate: float, weight_decay: float, lr_sched_param: List[float], batch_size: int,
         optimizer_type: str, scheduler_type: str,
         objective: str, preproc: str, supervise_mode: str, nominal_label: int,
         online_supervision: bool, oe_limit: int, noise_mode: str,

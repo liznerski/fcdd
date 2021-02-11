@@ -1,13 +1,14 @@
 import gzip
 import os
+import shutil
 import tarfile
 import tempfile
 import zipfile
-import shutil
+from typing import Callable
+from typing import Tuple
 
 import numpy as np
 import torch
-from typing import Callable
 import torchvision.transforms as transforms
 from PIL import Image
 from fcdd.datasets.bases import GTMapADDataset
@@ -99,7 +100,7 @@ class MvTec(VisionDataset, GTMapADDataset):
             assert -3 not in [self.nominal_label, self.anom_label]
         print('Dataset complete.')
 
-    def __getitem__(self, index: int) -> (torch.Tensor, int, torch.Tensor):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int, torch.Tensor]:
         img, label = self.data[index], self.targets[index]
 
         if self.split == 'test_anomaly_label_target':
@@ -139,7 +140,7 @@ class MvTec(VisionDataset, GTMapADDataset):
 
         return img, label, gt
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
     def download(self, verbose=True, shape=None, cls=None):

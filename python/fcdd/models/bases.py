@@ -1,5 +1,6 @@
 from abc import abstractmethod, ABC
 from copy import deepcopy
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -30,7 +31,7 @@ class ReceptiveModule(torch.nn.Module, ABC):
         """
         return {'n': self._n, 'j': self._j, 'r': self._r, 's': self._s, 'img_shape': self._in_shape}
 
-    def set_reception(self, n: int, j: int, r: float, s: float, in_shape: [int] = None):
+    def set_reception(self, n: int, j: int, r: float, s: float, in_shape: List[int] = None):
         self._n = n
         self._j = j
         self._r = r
@@ -38,7 +39,7 @@ class ReceptiveModule(torch.nn.Module, ABC):
         if in_shape is not None:
             self._in_shape = in_shape
 
-    def receptive_upsample(self, pixels: torch.Tensor, reception=True, std: float = None, cpu=True):
+    def receptive_upsample(self, pixels: torch.Tensor, reception=True, std: float = None, cpu=True) -> torch.Tensor:
         """
         Implement this to upsample given tensor images based on the receptive field with a Gaussian kernel.
         Usually one can just invoke the receptive_upsample method of the last convolutional layer.
@@ -151,7 +152,7 @@ class RecMaxPool2d(torch.nn.MaxPool2d, ReceptiveModule):
 class BaseNet(torch.nn.Module, ABC):
     """ Base class for all networks """
 
-    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+    def __init__(self, in_shape: Tuple[int, int, int], bias=False, **kwargs):
         """
         :param in_shape: the shape the model expects the input to have (n x c x h x w).
         :param bias: whether to use bias in the network layers.
@@ -170,7 +171,7 @@ class BaseNet(torch.nn.Module, ABC):
     def in_shape(self):
         return self._in_shape
 
-    def get_grad_heatmap(self, losses: torch.Tensor, inputs: torch.Tensor, method='grad', absolute=True):
+    def get_grad_heatmap(self, losses: torch.Tensor, inputs: torch.Tensor, method='grad', absolute=True) -> torch.tensor:
         """
         Compute gradient heatmaps of loss w.r.t. to inputs.
         :param losses: the computed loss of some training iteration for this model.
@@ -194,7 +195,7 @@ class BaseNet(torch.nn.Module, ABC):
 
 
 class ReceptiveNet(BaseNet, ReceptiveModule):
-    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+    def __init__(self, in_shape: Tuple[int, int, int], bias=False, **kwargs):
         """
         Base class for neural networks that keep track of the receptive field flow, i.e.
         the receptive field (extent, shift, jump, etc.) can be retrieved at any time via the according property.
@@ -301,7 +302,7 @@ class ReceptiveNet(BaseNet, ReceptiveModule):
 
 class FCDDNet(ReceptiveNet):
     """ Baseclass for FCDD networks, i.e. network without fully connected layers that have a spatial output """
-    def __init__(self, in_shape: (int, int, int), bias=False, **kwargs):
+    def __init__(self, in_shape: Tuple[int, int, int], bias=False, **kwargs):
         super().__init__(in_shape, bias)
 
 

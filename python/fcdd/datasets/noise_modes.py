@@ -1,9 +1,9 @@
+import torch
 from fcdd.datasets.noise import confetti_noise, colorize_noise, solid, smooth_noise
-from fcdd.datasets.outlier_exposure.imagenet import OEImageNet, OEImageNet22k
 from fcdd.datasets.outlier_exposure.cifar100 import OECifar100
 from fcdd.datasets.outlier_exposure.emnist import OEEMNIST
+from fcdd.datasets.outlier_exposure.imagenet import OEImageNet, OEImageNet22k
 from fcdd.util.logging import Logger
-import torch
 
 MODES = [
     'gaussian', 'uniform', 'blob', 'mixed_blob', 'solid', 'confetti',  # Synthetic Anomalies

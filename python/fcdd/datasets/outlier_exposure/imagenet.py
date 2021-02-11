@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import DatasetFolder
 from torchvision.datasets.folder import has_file_allowed_extension, default_loader, IMG_EXTENSIONS
 from torchvision.datasets.vision import StandardTransform
+from typing import List, Tuple
 
 
 def ceil(x: float):
@@ -22,7 +23,7 @@ def ceil(x: float):
 
 
 class OEImageNet(torchvision.datasets.ImageNet):
-    def __init__(self, size: torch.Size, root: str = None, split='val', limit_var: int = np.infty, exclude: [str] = ()):
+    def __init__(self, size: torch.Size, root: str = None, split='val', limit_var: int = np.infty, exclude: List[str] = ()):
         """
         Outlier Exposure dataset for ImageNet.
         :param size: size of the samples in n x c x h x w, samples will be resized to h x w. If n is larger than the
@@ -216,7 +217,7 @@ class MyImageNet22K(MyImageFolder):
         if exclude_imagenet1k:
             self.samples = [s for s in self.samples if not any([idx in s[0] for idx in self.imagenet1k_idxs])]
 
-    def __getitem__(self, index: int) -> (torch.Tensor, int):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         """
         Override the original method of the ImageFolder class to catch some errors (seems like a few of the 22k
         images are broken).
@@ -284,10 +285,10 @@ class OEImageNet22k(MyImageNet22K):
     def __len__(self):
         return len(self.picks if self.picks is not None else self.samples)
 
-    def data_loader(self):
+    def data_loader(self) -> DataLoader:
         return DataLoader(dataset=self, batch_size=self.size[0], shuffle=True, num_workers=0)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> torch.Tensor:
         index = self.picks[index] if self.picks is not None else index
 
         sample, target = super().__getitem__(index)

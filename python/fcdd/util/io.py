@@ -5,6 +5,7 @@ import re
 import sys
 import warnings
 from argparse import Namespace
+from typing import List
 
 import torch
 from fcdd.util.logging import Logger
@@ -62,8 +63,8 @@ def extract_args(args: Namespace, cfg: dict):
 OPTIONS = ['base', 'ae', 'hsc', 'gts']
 
 
-def combine_specific_viz_ids_pics(srcs: [str], out: str = None, setup=('base', 'hsc', 'ae'),
-                                  skip_further=False, only_cls: [int] = None):
+def combine_specific_viz_ids_pics(srcs: List[str], out: str = None, setup: List[str] = ('base', 'hsc', 'ae'),
+                                  skip_further=False, only_cls: List[int] = None):
     """
     Combines heatmap images (visualization ids) for several old experiments for the same input images.
     Depending on the setup, it creates an image with input images at the top and heatmap images below, where

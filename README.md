@@ -2,23 +2,23 @@
 Here we provide the implementation of *Fully Convolutional Data Description* (FCDD), an explainable approach to deep one-class classification. 
 The implementation is based on PyTorch 1.4.0 and Python 3.6. 
 
-Deep one-class classification variants for anomaly detection learn a mapping that concentrates nominal samples in feature space causing anomalies to be mapped away. Because this transformation is highly non-linear, finding interpretations poses a significant challenge. We present an explainable deep one-class classification method, *Fully Convolutional Data Description* (FCDD), where the mapped samples are themselves also an explanation heatmap. FCDD yields competitive detection performance and provides reasonable explanations on common anomaly detection benchmarks with CIFAR-10 and ImageNet. On MVTec-AD, a recent manufacturing dataset offering ground-truth anomaly maps, FCDD meets the state of the art in an unsupervised setting, and outperforms its competitors in a semi-supervised setting. The following image shows some of the FCDD explanation heatmaps for test samples of MVTec-AD:
+Deep one-class classification variants for anomaly detection learn a mapping thatconcentrates nominal samples in feature space causing anomalies to be mapped away. Because this transformation is highly non-linear, finding interpretations poses a significant challenge. In this paper we present an explainable deep one-class classification method, *Fully Convolutional Data Description* (FCDD), where the mapped samples are themselves also an explanation heatmap. FCDD yields competitive detection performance and provides reasonable explanations on common anomaly detection benchmarks with CIFAR-10 and ImageNet. On MVTec-AD, a recent manufacturing dataset offering ground-truth anomaly maps, FCDD sets a new state of the art in the unsupervised setting. Our method can incorporate ground-truth anomaly maps during training and using even a few of these (∼5) improves performance significantly. Finally, using FCDD’s explanations we demonstrate the vulnerability of deep one-class classification models to spurious image features such as image watermarks. The following image shows some of the FCDD explanation heatmaps for test samples of MVTec-AD:
 
 <img src="data/git_images/fcdd_explanations_mvtec.png?raw=true" height="373" width="633" > 
 
 
-## Cite the Paper
-A preprint of our paper is available at: https://arxiv.org/abs/2007.01760 
+## Citation 
+A PDF of our ICLR 2021 paper is available at: https://openreview.net/forum?id=A5VV3UyIQz.
 
-If you use our work, please also cite the current preprint:
+If you use our work, please also cite the paper:
 ```
-@misc{liznerski2020explainable,
+@inproceedings{
+    liznerski2021explainable,
     title={Explainable Deep One-Class Classification},
-    author={Philipp Liznerski and Lukas Ruff and Robert A. Vandermeulen and Billy Joe Franks and Marius Kloft and Klaus-Robert Müller},
-    year={2020},
-    eprint={2007.01760},
-    archivePrefix={arXiv},
-    primaryClass={cs.CV}
+    author={Philipp Liznerski and Lukas Ruff and Robert A. Vandermeulen and Billy Joe Franks and Marius Kloft and Klaus Robert Muller},
+    booktitle={International Conference on Learning Representations},
+    year={2021},
+    url={https://openreview.net/forum?id=A5VV3UyIQz}
 }
 ```
 
@@ -293,5 +293,5 @@ Cf. one of the existing implementations of Outlier Exposure datasets, e.g. `fcdd
 
 
 ## Need help?
-If you find any bugs, have questions, or need help modifying FCDD, feel free to write us an [email](mailto:p_liznersk13@cs.uni-kl.de)!
+If you find any bugs, have questions, need help modifying FCDD, or want to get in touch in general, feel free to write us an [email](mailto:liznerski@cs.uni-kl.de)!
 
