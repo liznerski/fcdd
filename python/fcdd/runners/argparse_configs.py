@@ -191,8 +191,10 @@ class DefaultMvtecConfig(DefaultConfig):
         parser = super().__call__(parser)
         parser.set_defaults(
             batch_size=16, acc_batches=8, supervise_mode='malformed_normal',
-            gauss_std=12, weight_decay=1e-4, epochs=200, preproc='lcnaug1',
-            quantile=0.99, net='FCDD_CNN224_VGG_F'
+            gauss_std=12, weight_decay=1e-4, preproc='lcnaug1',
+            quantile=0.99, net='FCDD_CNN224_VGG_F',
+            epochs=2000,  # ten times more epochs as in the master branch because dataset is not enlarged for Windows
+            lr_sched_param=[0.9985],  # adjust lr decay accordingly
         )
         return parser
 

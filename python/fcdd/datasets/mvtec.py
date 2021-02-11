@@ -26,7 +26,11 @@ def mvtec_awgn(x):
 
 
 class ADMvTec(TorchvisionDataset):
-    enlarge = True  # enlarge dataset by repeating all data samples ten time, speeds up data loading
+    # Set enlarge=True to enlarge dataset by repeating all data samples ten times (speeds up data loading).
+    # Deactivated on windows because this causes
+    # "RuntimeError: Trying to resize storage that is not resizable at ..\aten\src\TH\THStorageFunctions.cpp:88".
+    # My guess is that this is due to Windows being unable to pickle large objects for multiprocessing.
+    enlarge = False
 
     def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
                  supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool,
