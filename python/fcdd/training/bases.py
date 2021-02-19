@@ -478,8 +478,8 @@ class BaseADTrainer(BaseTrainer):
         rows = []
         for s in range(number_of_rows):
             rows.append(self._image_processing(imgs[idx][s * nrow:s * nrow + nrow], inpshp, maxres=self.resdown, qu=1))
+            err = self.objective != 'ae' and 'train' not in name  # training samples might have just one label
             if self.objective != 'hsc':
-                err = self.objective != 'ae'
                 rows.append(
                     self._image_processing(
                         ascores[idx][s * nrow:s * nrow + nrow], inpshp, maxres=self.resdown, qu=self.quantile,
@@ -492,7 +492,7 @@ class BaseADTrainer(BaseTrainer):
                     self._image_processing(
                         grads[idx][s * nrow:s * nrow + nrow], inpshp, self.blur_heatmaps,
                         self.resdown, qu=self.quantile,
-                        colorize=True, ref=balance_labels(grads, labels) if norm == 'global' else grads[idx],
+                        colorize=True, ref=balance_labels(grads, labels, err) if norm == 'global' else grads[idx],
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
@@ -527,8 +527,8 @@ class BaseADTrainer(BaseTrainer):
         """
         for norm in ['local', 'global']:
             rows = [self._image_processing(imgs[idx], inpshp, maxres=res, qu=1)]
+            err = self.objective != 'ae' and 'train' not in name  # training samples might have just one label
             if self.objective != 'hsc':
-                err = self.objective != 'ae'
                 rows.append(
                     self._image_processing(
                         ascores[idx], inpshp, maxres=res, colorize=True,
@@ -540,7 +540,7 @@ class BaseADTrainer(BaseTrainer):
                 rows.append(
                     self._image_processing(
                         grads[idx], inpshp, self.blur_heatmaps, res, colorize=True,
-                        ref=balance_labels(grads, labels) if norm == 'global' else None,
+                        ref=balance_labels(grads, labels, err) if norm == 'global' else None,
                         norm=norm.replace('semi_', ''),  # semi case is handled in the line above
                     )
                 )
