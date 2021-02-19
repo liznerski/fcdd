@@ -527,7 +527,7 @@ class BaseADTrainer(BaseTrainer):
         """
         for norm in ['local', 'global']:
             rows = [self._image_processing(imgs[idx], inpshp, maxres=res, qu=1)]
-            err = self.objective != 'ae' and 'train' not in name  # training samples might be one-class labeled
+            err = self.objective != 'ae' and 'train' not in name  # training samples might have just one label
             if self.objective != 'hsc':
                 rows.append(
                     self._image_processing(
