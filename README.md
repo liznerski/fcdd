@@ -15,7 +15,7 @@ If you use our work, please also cite the paper:
 @inproceedings{
     liznerski2021explainable,
     title={Explainable Deep One-Class Classification},
-    author={Philipp Liznerski and Lukas Ruff and Robert A. Vandermeulen and Billy Joe Franks and Marius Kloft and Klaus Robert Muller},
+    author={Philipp Liznerski and Lukas Ruff and Robert A. Vandermeulen and Billy Joe Franks and Marius Kloft and Klaus-Robert M{\"u}ller},
     booktitle={International Conference on Learning Representations},
     year={2021},
     url={https://openreview.net/forum?id=A5VV3UyIQz}
