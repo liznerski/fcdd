@@ -230,7 +230,7 @@ Make sure that the class name is unique.
 <details>
 <summary>Add a new Dataset</summary>
 
-First, you should check whether it's possible to use the [custom dataset implementation](####custom-data).
+First, you should check whether it's possible to use the [custom dataset implementation](#custom-data).
 If not:
 
 1) Create a new python script in the `datasets` package. 
