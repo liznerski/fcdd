@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
+from collections import Counter
 
 import numpy as np
 import torch
@@ -112,7 +113,7 @@ class TorchvisionDataset(BaseADDataset):
                     g = g.repeat(1, x.shape[1], 1, 1)
                 out.append(g)
         self.logprint('Dataset preview generated.')
-        return torch.cat(out)
+        return torch.stack([o[:min(Counter(y.tolist()).values())] for o in out])
 
     def _generate_artificial_anomalies_train_set(self, supervise_mode: str, noise_mode: str, oe_limit: int,
                                                  train_set: Dataset, nom_class: int):

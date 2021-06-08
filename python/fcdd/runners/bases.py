@@ -224,7 +224,7 @@ class ClassesRunner(SeedsRunner):
                 for key in res:
                     results[key].append(res[key])
             finally:
-                print('Plotting Many ROC for completed classes up to {}...'.format(c))
+                print('Plotting ROC for completed classes up to {}...'.format(c))
                 for key in results:
                     plot_many_roc(
                         logdir.replace('{t}', time_format(self.start)), results[key],

@@ -82,10 +82,10 @@ For full OE:
 Please note that you have to manually download ImageNet1k and ImageNet22k and place them in the correct folders.
 Let **dsdir** be your specified dataset directory (per default `../../data/datasets/`). 
 
-ImageNet1k needs to be in `dsdir/imagenet`, containing the devkit, train, and val split in form of a tar file each -- with names `ILSVRC2012_devkit_t12.tar.gz`, `ILSVRC2012_img_train.tar`, and `ILSVRC2012_img_val.tar`. 
+ImageNet1k needs to be in `dsdir/imagenet/`, containing the devkit, train, and val split in form of a tar file each -- with names `ILSVRC2012_devkit_t12.tar.gz`, `ILSVRC2012_img_train.tar`, and `ILSVRC2012_img_val.tar`. 
 These are the default names expected by the PyTorch loaders. You can download ImageNet1k on the official website: http://image-net.org/download. Note that you have to register beforehand. 
 
-ImageNet22k needs to be in `dsdir/imagenet22k/fall11_whole_extracted`, containing all the extracted class directories with pictures, e.g. the folder n12267677 having pictures of acorns.
+ImageNet22k needs to be in `dsdir/imagenet22k/fall11_whole_extracted/`, containing all the extracted class directories with pictures, e.g. the folder n12267677 having pictures of acorns.
 Decompressing the downloaded archive should automatically yield this structure. 
 ImageNet22k, i.e. the full release fall 11, can also be downloaded on the official website: http://image-net.org/download.
 
@@ -102,7 +102,27 @@ Using a semi-supervised setup with one true anomaly per defection:
 #### Pascal VOC
 
     python runners/run_pascalvoc.py 
+    
+    
+#### Custom Data
+Let again **dsdir** be your specified dataset directory (per default `../../data/datasets/`). 
+Place your training data in `dsdir/custom/train/classX/` and your test data in `dsdir/custom/test/classX/`, with classX being one of the class folders (they can have arbitrary names, but need to be consistent for training and testing).
+For a one-vs-rest setup (as used for Cifar-10, etc.), place the corresponding images directly in the class folders and run:
 
+    python runners/run_custom.py -ovr 
+
+Otherwise, each class requires a separate set of nominal and anomalous test samples.
+Place the corresponding images in `dsdir/custom/test/classX/normal/`, `dsdir/custom/test/classX/anomalous/`, `dsdir/custom/train/classX/normal/` and run:
+
+    python runners/run_custom.py
+    
+If you have some training anomalies in `dsdir/custom/train/classX/anomalous/`, you can use them in a semi-supervised setting with
+
+    python runners/run_custom.py --supervise-mode other
+
+In general, you can adapt most training parameters using the program's arguments (see `python runners/run_custom.py --help`).
+Per default, it chooses some parameters that are assumed general-purpose, such as the imagenet-pre-trained CNN for 224x224 images and imagenet22k outlier exposure.
+To, for example, use confetti noise instead of outlier exposure, set `--supervise-mode` to `malformed_normal` and `--noise-mode` to `confetti`.
 
 ## Train Baselines
 
@@ -209,6 +229,9 @@ Make sure that the class name is unique.
 
 <details>
 <summary>Add a new Dataset</summary>
+
+First, you should check whether it's possible to use the [custom dataset implementation](####custom-data).
+If not:
 
 1) Create a new python script in the `datasets` package. 
 Implement a dataset that inherits the `fcdd.datasets.bases.TorchvisionDataset` class. 

@@ -79,9 +79,9 @@ class DefaultConfig(object):
                  'Note that only one snapshot is given, thus using a runner that trains for multiple different classes '
                  'to be nominal is not applicable. '
         )
-        parser.add_argument('-d', '--dataset', type=str, default='mvtec', choices=DS_CHOICES)
+        parser.add_argument('-d', '--dataset', type=str, default='custom', choices=DS_CHOICES)
         parser.add_argument(
-            '-n', '--net', type=str, default='FCDD_CNN224_W', choices=choices(),
+            '-n', '--net', type=str, default='FCDD_CNN224_VGG_F', choices=choices(),
             help='Chooses a network architecture to train. Note that not all architectures fit every objective. '
         )
         parser.add_argument(
@@ -112,7 +112,7 @@ class DefaultConfig(object):
                  '"malformed_normal_gt" is like malformed_normal, but with ground-truth anomaly heatmaps for training. '
         )
         parser.add_argument(
-            '--noise-mode', type=str, default='confetti', choices=MODES,
+            '--noise-mode', type=str, default='imagenet22k', choices=MODES,
             help='The type of noise used when artificial anomalies are activated. Dataset names refer to OE. '
                  'See fcdd.datasets.noise_modes.py.'
         )
@@ -192,7 +192,7 @@ class DefaultMvtecConfig(DefaultConfig):
         parser.set_defaults(
             batch_size=16, acc_batches=8, supervise_mode='malformed_normal',
             gauss_std=12, weight_decay=1e-4, epochs=200, preproc='lcnaug1',
-            quantile=0.99, net='FCDD_CNN224_VGG_F'
+            quantile=0.99, net='FCDD_CNN224_VGG_F', dataset='mvtec', noise_mode='confetti'
         )
         return parser
 

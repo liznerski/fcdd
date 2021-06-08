@@ -390,7 +390,13 @@ class BaseADTrainer(BaseTrainer):
     def heatmap_generation(self, labels: List[int], ascores: Tensor, imgs: Tensor,
                            gtmaps: Tensor = None, grads: Tensor = None, show_per_cls: int = 20,
                            name='heatmaps', specific_idx: Tuple[List[int], List[int]] = (), subdir='.'):
-        show_per_cls = min(show_per_cls, min(collections.Counter(labels).values()))
+        minsamples = min(collections.Counter(labels).values())
+        if minsamples < 2:
+            self.logger.warning(
+                f"Heatmap '{name}' cannot be generated. For some labels there are too few samples!", unique=False
+            )
+            return
+        show_per_cls = min(show_per_cls, minsamples)
         if show_per_cls % 2 != 0:
             show_per_cls -= 1
         lbls = torch.IntTensor(labels)
@@ -403,7 +409,7 @@ class BaseADTrainer(BaseTrainer):
         for l in sorted(set(labels)):
             idx.extend((lbls == l).nonzero().squeeze(-1).tolist()[:show_per_cls])
         rascores = self.reduce_ascore(ascores)
-        k = show_per_cls // 2
+        k = max(show_per_cls // 2, 1)
         for l in sorted(set(labels)):
             lid = set((lbls == l).nonzero().squeeze(-1).tolist())
             sort = [
@@ -419,7 +425,7 @@ class BaseADTrainer(BaseTrainer):
         if 'train' not in name:
             res = self.resdown * 2  # increase resolution limit because there are only a few heatmaps shown here
             rascores = self.reduce_ascore(ascores)
-            k = show_per_cls // 3
+            k = max(show_per_cls // 3, 1)
             inpshp = imgs.shape
             for l in sorted(set(labels)):
                 lid = set((torch.from_numpy(np.asarray(labels)) == l).nonzero().squeeze(-1).tolist())

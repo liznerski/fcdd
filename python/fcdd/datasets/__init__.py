@@ -1,17 +1,18 @@
 from copy import deepcopy
 from typing import List
-
 from fcdd.datasets.bases import TorchvisionDataset
 from fcdd.datasets.cifar import ADCIFAR10
 from fcdd.datasets.fmnist import ADFMNIST
 from fcdd.datasets.imagenet import ADImageNet
 from fcdd.datasets.mvtec import ADMvTec
 from fcdd.datasets.pascal_voc import ADPascalVoc
+from fcdd.datasets.image_folder import ADImageFolderDataset
 
-DS_CHOICES = ('mnist', 'cifar10', 'fmnist', 'mvtec', 'imagenet', 'pascalvoc')
+DS_CHOICES = ('mnist', 'cifar10', 'fmnist', 'mvtec', 'imagenet', 'pascalvoc', 'custom')
 PREPROC_CHOICES = (
     'lcn', 'lcnaug1', 'aug1', 'aug1_blackcenter', 'aug1_blackcenter_inverted', 'none'
 )
+CUSTOM_CLASSES = []
 
 
 def load_dataset(dataset_name: str, data_path: str, normal_class: int, preproc: str,
@@ -54,6 +55,14 @@ def load_dataset(dataset_name: str, data_path: str, normal_class: int, preproc: 
             supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
             oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
         )
+    elif dataset_name == 'custom':
+        dataset = ADImageFolderDataset(
+            root=data_path, normal_class=normal_class, preproc=preproc,
+            supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
+            oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
+        )
+    else:
+        raise NotImplementedError(f'Dataset {dataset_name} is unknown.')
 
     return dataset
 
@@ -65,6 +74,7 @@ def no_classes(dataset_name: str) -> int:
         'mvtec': 15,
         'imagenet': 30,
         'pascalvoc': 1,
+        'custom': len(CUSTOM_CLASSES)
     }[dataset_name]
 
 
@@ -80,5 +90,6 @@ def str_labels(dataset_name: str) -> List[str]:
             'wood', 'zipper'
         ],
         'imagenet': deepcopy(ADImageNet.ad_classes),
-        'pascalvoc': ['horse']
+        'pascalvoc': ['horse'],
+        'custom': list(CUSTOM_CLASSES)
     }[dataset_name]
