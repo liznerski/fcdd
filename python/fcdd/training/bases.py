@@ -391,44 +391,46 @@ class BaseADTrainer(BaseTrainer):
                            gtmaps: Tensor = None, grads: Tensor = None, show_per_cls: int = 20,
                            name='heatmaps', specific_idx: Tuple[List[int], List[int]] = (), subdir='.'):
         minsamples = min(collections.Counter(labels).values())
+        lbls = torch.IntTensor(labels)
+
         if minsamples < 2:
             self.logger.warning(
                 f"Heatmap '{name}' cannot be generated. For some labels there are too few samples!", unique=False
             )
-            return
-        show_per_cls = min(show_per_cls, minsamples)
-        if show_per_cls % 2 != 0:
-            show_per_cls -= 1
-        lbls = torch.IntTensor(labels)
-
-        # Evaluation Picture with 4 rows. Each row splits into 4 subrows with input-output-heatmap-gtm:
-        # (1) 20 first nominal samples (2) 20 first anomalous samples
-        # (3) 10 most nominal nominal samples - 10 most anomalous nominal samples
-        # (4) 10 most nominal anomalies - 10 most anomalous anomalies
-        idx = []
-        for l in sorted(set(labels)):
-            idx.extend((lbls == l).nonzero().squeeze(-1).tolist()[:show_per_cls])
-        rascores = self.reduce_ascore(ascores)
-        k = max(show_per_cls // 2, 1)
-        for l in sorted(set(labels)):
-            lid = set((lbls == l).nonzero().squeeze(-1).tolist())
-            sort = [
-                i for i in np.argsort(rascores.detach().reshape(rascores.size(0), -1).sum(1)).tolist() if i in lid
-            ]
-            idx.extend([*sort[:k], *sort[-k:]])
-        self._create_heatmaps_picture(
-            idx, name, imgs.shape, subdir, show_per_cls, imgs, ascores, grads, gtmaps, labels
-        )
+        else:
+            this_show_per_cls = min(show_per_cls, minsamples)
+            if this_show_per_cls % 2 != 0:
+                this_show_per_cls -= 1
+            # Evaluation Picture with 4 rows. Each row splits into 4 subrows with input-output-heatmap-gtm:
+            # (1) 20 first nominal samples (2) 20 first anomalous samples
+            # (3) 10 most nominal nominal samples - 10 most anomalous nominal samples
+            # (4) 10 most nominal anomalies - 10 most anomalous anomalies
+            idx = []
+            for l in sorted(set(labels)):
+                idx.extend((lbls == l).nonzero().squeeze(-1).tolist()[:this_show_per_cls])
+            rascores = self.reduce_ascore(ascores)
+            k = max(this_show_per_cls // 2, 1)
+            for l in sorted(set(labels)):
+                lid = set((lbls == l).nonzero().squeeze(-1).tolist())
+                sort = [
+                    i for i in np.argsort(rascores.detach().reshape(rascores.size(0), -1).sum(1)).tolist() if i in lid
+                ]
+                idx.extend([*sort[:k], *sort[-k:]])
+            self._create_heatmaps_picture(
+                idx, name, imgs.shape, subdir, this_show_per_cls, imgs, ascores, grads, gtmaps, labels
+            )
 
         # Concise paper picture: Samples grow from most nominal to most anomalous (equidistant).
         # 2 versions: with local normalization and semi-global normalization
         if 'train' not in name:
             res = self.resdown * 2  # increase resolution limit because there are only a few heatmaps shown here
             rascores = self.reduce_ascore(ascores)
-            k = max(show_per_cls // 3, 1)
             inpshp = imgs.shape
             for l in sorted(set(labels)):
                 lid = set((torch.from_numpy(np.asarray(labels)) == l).nonzero().squeeze(-1).tolist())
+                if len(lid) < 1:
+                    break
+                k = min(show_per_cls // 3, len(lid))
                 sort = [
                     i for i in np.argsort(rascores.detach().reshape(rascores.size(0), -1).sum(1)).tolist() if i in lid
                 ]
