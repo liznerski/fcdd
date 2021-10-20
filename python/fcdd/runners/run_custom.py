@@ -24,7 +24,16 @@ class CustomConfig(DefaultConfig):
                  'semi-supervised setting; set --supervise-mode to `other` to take them into account). '
                  'For more details see :class:`fcdd.datasets.image_folder.ADImageFolderDataset`.'
         )
-        parser.set_defaults(one_vs_rest=False)
+        parser.add_argument(
+            '--ground-truth-maps', '-gtms', action='store_true',
+            help='Activates utilization of binary ground-truth maps for training and/or testing. '
+                 'This requires additional dataset folders `data/custom/train_maps/classX/...` '
+                 'and/or `data/custom/test_maps/classX/...` where the corresponding maps are placed. '
+                 'The ground-truth maps need to be binary; i.e., need to be in {0, 255}^{1 x h x w}, '
+                 'where 255 marks anomalous regions. '
+                 'For more details see :class:`fcdd.datasets.image_folder_gtms.ADImageFolderDatasetGTM`.'
+        )
+        parser.set_defaults(one_vs_rest=False, ground_truth_maps=False)
         return parser
 
 
@@ -33,7 +42,9 @@ if __name__ == '__main__':
     runner.args.logdir += '_custom_'
     fcdd.datasets.CUSTOM_CLASSES = extract_custom_classes(runner.args.datadir)
     fcdd.datasets.image_folder.ADImageFolderDataset.ovr = runner.args.one_vs_rest
+    fcdd.datasets.image_folder.ADImageFolderDataset.gtm = runner.args.ground_truth_maps
     del runner.args.one_vs_rest
+    del runner.args.ground_truth_maps
     runner.run()
     print()
 

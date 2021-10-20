@@ -106,7 +106,7 @@ class TorchvisionDataset(BaseADDataset):
             out.append(x[y == c][:percls])
         if len(gts) > 0:
             assert len(set(gts.reshape(-1).tolist())) <= 2, 'training process assumes zero-one gtmaps'
-            out.append(torch.zeros_like(x[:percls]))
+            out.append(torch.zeros_like(x[y == 0][:percls]))
             for c in sorted(set(y.tolist())):
                 g = gts[y == c][:percls]
                 if x.shape[1] > 1:

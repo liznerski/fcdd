@@ -364,26 +364,29 @@ class BaseADTrainer(BaseTrainer):
         gtmap_roc_res, gtmap_prc_res = None, None
         use_grads = grads is not None
         if gtmaps is not None:
-            self.logger.print('Computing GT test score...')
-            ascores = self.reduce_pixelwise_ascore(ascores) if not use_grads else grads
-            gtmaps = self.test_loader.dataset.dataset.get_original_gtmaps_normal_class()
-            if isinstance(self.net, ReceptiveNet):  # Receptive field upsampling for FCDD nets
-                ascores = self.net.receptive_upsample(ascores, std=std)
-            # Further upsampling for original dataset size
-            ascores = torch.nn.functional.interpolate(ascores, (gtmaps.shape[-2:]))
-            flat_gtmaps, flat_ascores = gtmaps.reshape(-1).int().tolist(), ascores.reshape(-1).tolist()
+            try:
+                self.logger.print('Computing GT test score...')
+                ascores = self.reduce_pixelwise_ascore(ascores) if not use_grads else grads
+                gtmaps = self.test_loader.dataset.dataset.get_original_gtmaps_normal_class()
+                if isinstance(self.net, ReceptiveNet):  # Receptive field upsampling for FCDD nets
+                    ascores = self.net.receptive_upsample(ascores, std=std)
+                # Further upsampling for original dataset size
+                ascores = torch.nn.functional.interpolate(ascores, (gtmaps.shape[-2:]))
+                flat_gtmaps, flat_ascores = gtmaps.reshape(-1).int().tolist(), ascores.reshape(-1).tolist()
 
-            gtfpr, gttpr, gtthresholds = roc_curve(flat_gtmaps, flat_ascores)
-            gt_roc_score = roc_auc_score(flat_gtmaps, flat_ascores)
-            gtmap_roc_res = {'tpr': gttpr, 'fpr': gtfpr, 'ths': gtthresholds, 'auc': gt_roc_score}
-            self.logger.single_plot(
-                'gtmap_roc_curve', gttpr, gtfpr, xlabel='false positive rate', ylabel='true positive rate',
-                legend=['auc={}'.format(gt_roc_score)], subdir=subdir
-            )
-            self.logger.single_save(
-                'gtmap_roc', gtmap_roc_res, subdir=subdir
-            )
-            self.logger.logtxt('##### GTMAP ROC TEST SCORE {} #####'.format(gt_roc_score), print=True)
+                gtfpr, gttpr, gtthresholds = roc_curve(flat_gtmaps, flat_ascores)
+                gt_roc_score = roc_auc_score(flat_gtmaps, flat_ascores)
+                gtmap_roc_res = {'tpr': gttpr, 'fpr': gtfpr, 'ths': gtthresholds, 'auc': gt_roc_score}
+                self.logger.single_plot(
+                    'gtmap_roc_curve', gttpr, gtfpr, xlabel='false positive rate', ylabel='true positive rate',
+                    legend=['auc={}'.format(gt_roc_score)], subdir=subdir
+                )
+                self.logger.single_save(
+                    'gtmap_roc', gtmap_roc_res, subdir=subdir
+                )
+                self.logger.logtxt('##### GTMAP ROC TEST SCORE {} #####'.format(gt_roc_score), print=True)
+            except AssertionError as e:
+                self.logger.warning(f'Skipped computing the gtmap ROC score. {str(e)}')
 
         return {'roc': roc_res, 'gtmap_roc': gtmap_roc_res}
 

@@ -9,7 +9,7 @@ from torch import Tensor
 from torch.utils.data import Subset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision.transforms.functional import to_tensor, to_pil_image
-from fcdd.datasets.bases import TorchvisionDataset
+from fcdd.datasets.bases import TorchvisionDataset, GTSubset
 from fcdd.datasets.online_supervisor import OnlineSupervisor
 from fcdd.datasets.preprocessing import get_target_label_idx
 from fcdd.util.logging import Logger
@@ -25,6 +25,7 @@ def extract_custom_classes(datapath: str) -> List[str]:
 class ADImageFolderDataset(TorchvisionDataset):
     base_folder = 'custom'
     ovr = False
+    gtm = False
 
     def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
                  supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool,
@@ -72,8 +73,8 @@ class ADImageFolderDataset(TorchvisionDataset):
         :param logger: logger.
         """
         assert online_supervision, 'Artificial anomaly generation for custom datasets needs to be online'
-        trainpath = pt.join(root, self.base_folder, 'train')
-        testpath = pt.join(root, self.base_folder, 'test')
+        self.trainpath = pt.join(root, self.base_folder, 'train')
+        self.testpath = pt.join(root, self.base_folder, 'test')
         super().__init__(root, logger=logger)
 
         self.n_classes = 2  # 0: normal, 1: outlier
@@ -87,20 +88,20 @@ class ADImageFolderDataset(TorchvisionDataset):
         self.anomalous_label = 1 if self.nominal_label == 0 else 0
 
         # precomputed mean and std of your training data
-        mean, std = self.extract_mean_std(trainpath, normal_class)
+        self.mean, self.std = self.extract_mean_std(self.trainpath, normal_class)
 
         if preproc in ['', None, 'default', 'none']:
             test_transform = transform = transforms.Compose([
                 transforms.Resize((self.shape[-2], self.shape[-1])),
                 transforms.ToTensor(),
-                transforms.Normalize(mean, std)
+                transforms.Normalize(self.mean, self.std)
             ])
         elif preproc in ['aug1']:
             test_transform = transforms.Compose([
                 transforms.Resize((self.raw_shape[-1])),
                 transforms.CenterCrop(self.shape[-1]),
                 transforms.ToTensor(),
-                transforms.Normalize(mean, std)
+                transforms.Normalize(self.mean, self.std)
             ])
             transform = transforms.Compose([
                 transforms.Resize(self.raw_shape[-1]),
@@ -109,24 +110,24 @@ class ADImageFolderDataset(TorchvisionDataset):
                 transforms.RandomCrop(self.shape[-1]),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
-                transforms.Normalize(mean, std)
+                transforms.Normalize(self.mean, self.std)
             ])
         #  here you could define other pipelines with augmentations
         else:
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
-        target_transform = transforms.Lambda(
+        self.target_transform = transforms.Lambda(
             lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
         )
         if supervise_mode not in ['unsupervised', 'other']:
-            all_transform = OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit)
+            self.all_transform = OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit)
         else:
-            all_transform = None
+            self.all_transform = None
 
         self._train_set = ImageFolderDataset(
-            trainpath, supervise_mode, self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
+            self.trainpath, supervise_mode, self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
             normal_classes=self.normal_classes,
-            transform=transform, target_transform=target_transform, all_transform=all_transform,
+            transform=transform, target_transform=self.target_transform, all_transform=self.all_transform,
         )
         if supervise_mode == 'other':  # (semi)-supervised setting
             self.balance_dataset()
@@ -139,16 +140,16 @@ class ADImageFolderDataset(TorchvisionDataset):
             )
 
         self._test_set = ImageFolderDataset(
-            testpath, supervise_mode, self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
+            self.testpath, supervise_mode, self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
             normal_classes=self.normal_classes,
-            transform=test_transform, target_transform=target_transform,
+            transform=test_transform, target_transform=self.target_transform,
         )
         if not self.ovr:
             self._test_set = Subset(
                 self._test_set, get_target_label_idx(self._test_set.targets, np.asarray(self.normal_classes))
             )
 
-    def balance_dataset(self):
+    def balance_dataset(self, gtm=False):
         nominal_mask = (np.asarray(self._train_set.anomaly_labels) == self.nominal_label)
         nominal_mask = nominal_mask * np.isin(self._train_set.targets, np.asarray(self.normal_classes))
         anomaly_mask = (np.asarray(self._train_set.anomaly_labels) != self.nominal_label)
@@ -159,7 +160,8 @@ class ADImageFolderDataset(TorchvisionDataset):
         if anomaly_mask.sum() == 0:
             return
 
-        self._train_set = Subset(  # randomly pick n_nominal anomalies for a balanced training set
+        CLZ = Subset if not gtm else GTSubset
+        self._train_set = CLZ(  # randomly pick n_nominal anomalies for a balanced training set
             self._train_set, np.concatenate([
                 np.argwhere(nominal_mask).flatten().tolist(),
                 np.random.choice(np.argwhere(anomaly_mask).flatten().tolist(), nominal_mask.sum(), replace=True)
