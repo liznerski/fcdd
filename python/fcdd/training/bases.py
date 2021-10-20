@@ -642,6 +642,7 @@ class BaseADTrainer(BaseTrainer):
         """
         ref = ref if ref is not None else imgs
         imgs.sub_(ref.min())
+        ref = ref.sub(ref.min())
         quantile = ref.reshape(-1).kthvalue(int(qu * ref.reshape(-1).size(0)))[0]  # qu% are below that
         imgs.div_(quantile)  # (1 - qu)% values will end up being out of scale ( > 1)
         plosses = imgs.clamp(0, 1)  # clamp those

@@ -68,7 +68,7 @@ def colorize(imgs: List[Tensor], norm=True, rgb=True, cmap='jet') -> List[Tensor
                     img.view(img.size(0), -1).min(1)[0][(..., ) + (None, ) * (img.dim() - 1)]
                 ).div_(img.view(img.size(0), -1).max(1)[0][(..., ) + (None, ) * (img.dim() - 1)])  # scale each!
             img = torch.from_numpy(
-                plt.get_cmap(cmap if rgb else '{}_r'.format(cmap))(img)
+                plt.get_cmap(cmap if rgb else '{}_r'.format(cmap))(img.cpu().detach().numpy())
             ).transpose(1, 4).squeeze(-1)[:, :-1].float()
             img = img.reshape(shp)
             imgs[j] = img

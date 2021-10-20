@@ -15,7 +15,7 @@ from fcdd.datasets.bases import GTMapADDataset
 from fcdd.util.logging import Logger
 from torchvision.datasets import VisionDataset
 from torchvision.datasets.imagenet import check_integrity, verify_str_arg
-from torchvision.datasets.utils import download_url, _is_gzip, _is_tar, _is_targz, _is_zip
+from torchvision.datasets.utils import _is_gzip, _is_tar, _is_targz, _is_zip, gen_bar_updater
 
 
 class MvTec(VisionDataset, GTMapADDataset):
@@ -266,11 +266,54 @@ class MvTec(VisionDataset, GTMapADDataset):
         if not os.path.exists(download_root):
             os.makedirs(download_root)
         if not check_integrity(os.path.join(download_root, filename)):
-            download_url(url, download_root, filename, md5)
+            MvTec.download_url(url, download_root, filename, md5)
 
         archive = os.path.join(download_root, filename)
         print("Extracting {} to {}".format(archive, extract_root))
         MvTec.extract_archive(archive, extract_root, remove_finished)
+
+    @staticmethod
+    def download_url(url, root, filename=None, md5=None):
+        """Download a file from a url and place it in root.
+        Args:
+            url (str): URL to download file from
+            root (str): Directory to place downloaded file in
+            filename (str, optional): Name to save the file under. If None, use the basename of the URL
+            md5 (str, optional): MD5 checksum of the download. If None, do not check
+        """
+        from six.moves import urllib
+
+        root = os.path.expanduser(root)
+        if not filename:
+            filename = os.path.basename(url)
+        fpath = os.path.join(root, filename)
+
+        os.makedirs(root, exist_ok=True)
+
+        # check if file is already present locally
+        if check_integrity(fpath, md5):
+            print('Using downloaded and verified file: ' + fpath)
+        else:  # download the file
+            try:
+                print('Downloading ' + url + ' to ' + fpath)
+                urllib.request.urlretrieve(
+                    url, fpath,
+                    reporthook=gen_bar_updater()
+                )
+            except (urllib.error.URLError, IOError) as e:
+                if url[:5] == 'https':
+                    url = url.replace('https:', 'http:')
+                    print('Failed download. Trying https -> http instead.'
+                          ' Downloading ' + url + ' to ' + fpath)
+                    urllib.request.urlretrieve(
+                        url, fpath,
+                        reporthook=gen_bar_updater()
+                    )
+                else:
+                    raise e
+            # check integrity of downloaded file
+            if not check_integrity(fpath, md5):
+                raise RuntimeError("File not found or corrupted.")
 
     @staticmethod
     def extract_archive(from_path, to_path=None, remove_finished=False):
