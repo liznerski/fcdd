@@ -1,7 +1,6 @@
 import json
 import os
 import os.path as pt
-from distutils.version import StrictVersion
 from sre_constants import error as sre_constants_error
 
 import numpy as np
@@ -38,7 +37,6 @@ class OEImageNet(torchvision.datasets.ImageNet):
         """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
-        assert StrictVersion(torchvision.__version__) >= StrictVersion('0.5.0')
         root = pt.join(root, 'imagenet', )
         self.root = root
         super().__init__(root, split)
@@ -101,7 +99,7 @@ class MyImageFolder(DatasetFolder):
         self.loader = default_loader
         self.extensions = extensions = IMG_EXTENSIONS if is_valid_file is None else None
 
-        classes, class_to_idx = self._find_classes(self.root)
+        classes, class_to_idx = self.find_classes(self.root)
         samples = self.make_dataset(self.root, class_to_idx, extensions, is_valid_file)
         if len(samples) == 0:
             raise (RuntimeError("Found 0 files in subfolders of: " + self.root + "\n"
@@ -259,7 +257,6 @@ class OEImageNet22k(MyImageNet22K):
         """
         assert len(size) == 4 and size[2] == size[3]
         assert size[1] in [1, 3]
-        assert StrictVersion(torchvision.__version__) >= StrictVersion('0.5.0')
         root = pt.join(root, 'imagenet22k') if not root.endswith('imagenet') else pt.join(root, '..', 'imagenet22k')
         root = pt.join(root, 'fall11_whole_extracted')  # important to have a second layer, to speed up load meta file
         self.root = root

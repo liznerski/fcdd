@@ -1,3 +1,4 @@
+import torch
 from fcdd.runners.bases import ClassesRunner
 from fcdd.runners.argparse_configs import DefaultFmnistConfig
 
@@ -10,6 +11,7 @@ class FmnistConfig(DefaultFmnistConfig):
 
 
 if __name__ == '__main__':
+    torch.set_num_threads(4)
     runner = ClassesRunner(FmnistConfig())
     runner.args.logdir += '_fmnist_'
     runner.run()

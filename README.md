@@ -1,6 +1,6 @@
 # Explainable Deep One-Class Classification
 Here we provide the implementation of *Fully Convolutional Data Description* (FCDD), an explainable approach to deep one-class classification. 
-The implementation is based on PyTorch 1.4.0 and Python 3.6. 
+The implementation is based on PyTorch 1.9.1 and Python 3.8. 
 
 Deep one-class classification variants for anomaly detection learn a mapping thatconcentrates nominal samples in feature space causing anomalies to be mapped away. Because this transformation is highly non-linear, finding interpretations poses a significant challenge. In this paper we present an explainable deep one-class classification method, *Fully Convolutional Data Description* (FCDD), where the mapped samples are themselves also an explanation heatmap. FCDD yields competitive detection performance and provides reasonable explanations on common anomaly detection benchmarks with CIFAR-10 and ImageNet. On MVTec-AD, a recent manufacturing dataset offering ground-truth anomaly maps, FCDD sets a new state of the art in the unsupervised setting. Our method can incorporate ground-truth anomaly maps during training and using even a few of these (∼5) improves performance significantly. Finally, using FCDD’s explanations we demonstrate the vulnerability of deep one-class classification models to spurious image features such as image watermarks. The following image shows some of the FCDD explanation heatmaps for test samples of MVTec-AD:
 

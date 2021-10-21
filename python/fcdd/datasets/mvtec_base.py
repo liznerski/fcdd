@@ -1,21 +1,19 @@
-import gzip
 import os
 import shutil
 import tarfile
 import tempfile
-import zipfile
 from typing import Callable
 from typing import Tuple
 
 import numpy as np
 import torch
 import torchvision.transforms as transforms
+from tqdm import tqdm
 from PIL import Image
 from fcdd.datasets.bases import GTMapADDataset
 from fcdd.util.logging import Logger
 from torchvision.datasets import VisionDataset
 from torchvision.datasets.imagenet import check_integrity, verify_str_arg
-from torchvision.datasets.utils import _is_gzip, _is_tar, _is_targz, _is_zip, gen_bar_updater
 
 
 class MvTec(VisionDataset, GTMapADDataset):
@@ -256,8 +254,7 @@ class MvTec(VisionDataset, GTMapADDataset):
         return img_name.replace('.png', '_mask.png')
 
     @staticmethod
-    def download_and_extract_archive(url, download_root, extract_root=None, filename=None,
-                                     md5=None, remove_finished=False):
+    def download_and_extract_archive(url, download_root, extract_root=None, filename=None, remove_finished=False):
         download_root = os.path.expanduser(download_root)
         if extract_root is None:
             extract_root = download_root
@@ -265,21 +262,20 @@ class MvTec(VisionDataset, GTMapADDataset):
             filename = os.path.basename(url)
         if not os.path.exists(download_root):
             os.makedirs(download_root)
-        if not check_integrity(os.path.join(download_root, filename)):
-            MvTec.download_url(url, download_root, filename, md5)
+
+        MvTec.download_url(url, download_root, filename)
 
         archive = os.path.join(download_root, filename)
         print("Extracting {} to {}".format(archive, extract_root))
         MvTec.extract_archive(archive, extract_root, remove_finished)
 
     @staticmethod
-    def download_url(url, root, filename=None, md5=None):
+    def download_url(url, root, filename=None):
         """Download a file from a url and place it in root.
         Args:
             url (str): URL to download file from
             root (str): Directory to place downloaded file in
             filename (str, optional): Name to save the file under. If None, use the basename of the URL
-            md5 (str, optional): MD5 checksum of the download. If None, do not check
         """
         from six.moves import urllib
 
@@ -290,16 +286,22 @@ class MvTec(VisionDataset, GTMapADDataset):
 
         os.makedirs(root, exist_ok=True)
 
+        def gen_bar_updater():
+            pbar = tqdm(total=None)
+
+            def bar_update(count, block_size, total_size):
+                if pbar.total is None and total_size:
+                    pbar.total = total_size
+                progress_bytes = count * block_size
+                pbar.update(progress_bytes - pbar.n)
+
+            return bar_update
+
         # check if file is already present locally
-        if check_integrity(fpath, md5):
-            print('Using downloaded and verified file: ' + fpath)
-        else:  # download the file
+        if not check_integrity(fpath, None):
             try:
                 print('Downloading ' + url + ' to ' + fpath)
-                urllib.request.urlretrieve(
-                    url, fpath,
-                    reporthook=gen_bar_updater()
-                )
+                urllib.request.urlretrieve(url, fpath, reporthook=gen_bar_updater())
             except (urllib.error.URLError, IOError) as e:
                 if url[:5] == 'https':
                     url = url.replace('https:', 'http:')
@@ -312,7 +314,7 @@ class MvTec(VisionDataset, GTMapADDataset):
                 else:
                     raise e
             # check integrity of downloaded file
-            if not check_integrity(fpath, md5):
+            if not check_integrity(fpath, None):
                 raise RuntimeError("File not found or corrupted.")
 
     @staticmethod
@@ -320,25 +322,5 @@ class MvTec(VisionDataset, GTMapADDataset):
         if to_path is None:
             to_path = os.path.dirname(from_path)
 
-        if _is_tar(from_path):
-            with tarfile.open(from_path, 'r') as tar:
-                tar.extractall(path=to_path)
-        elif _is_targz(from_path):
-            with tarfile.open(from_path, 'r:gz') as tar:
-                tar.extractall(path=to_path)
-        elif _is_gzip(from_path):
-            to_path = os.path.join(to_path, os.path.splitext(os.path.basename(from_path))[0])
-            with open(to_path, "wb") as out_f, gzip.GzipFile(from_path) as zip_f:
-                out_f.write(zip_f.read())
-        elif _is_zip(from_path):
-            with zipfile.ZipFile(from_path, 'r') as z:
-                z.extractall(to_path)
-        elif MvTec._is_tarxz(from_path):
-            with tarfile.open(from_path, 'r:xz') as tar:
-                tar.extractall(path=to_path)
-        else:
-            raise ValueError("Extraction of {} not supported".format(from_path))
-
-    @staticmethod
-    def _is_tarxz(filename):
-        return filename.endswith(".tar.xz")
+        with tarfile.open(from_path, 'r:xz') as tar:
+            tar.extractall(path=to_path)

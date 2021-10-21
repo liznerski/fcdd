@@ -69,9 +69,9 @@ class TorchvisionDataset(BaseADDataset):
             'using shuffled test raises problems with original GT maps for GT datasets, thus disabled atm!'
         # classes = None means all classes
         train_loader = DataLoader(dataset=self.train_set, batch_size=batch_size, shuffle=shuffle_train,
-                                  num_workers=num_workers, pin_memory=True)
+                                  num_workers=num_workers, pin_memory=False, persistent_workers=True)
         test_loader = DataLoader(dataset=self.test_set, batch_size=batch_size, shuffle=shuffle_test,
-                                 num_workers=num_workers, pin_memory=True,)
+                                 num_workers=num_workers, pin_memory=False, persistent_workers=True)
         return train_loader, test_loader
 
     def preview(self, percls=20, train=True) -> torch.Tensor:
