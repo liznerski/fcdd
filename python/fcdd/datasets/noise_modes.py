@@ -76,7 +76,7 @@ def generate_noise(noise_mode: str, size: torch.Size, oe_limit: int,
             ).data_loader()))
         elif noise_mode in ['mvtec', 'mvtec_gt']:
             raise NotImplementedError(
-                'MVTec-AD and MVTec-AD with ground-truth maps is only available with only supervision.'
+                'MVTec-AD and MVTec-AD with ground-truth maps is only available with online supervision.'
             )
         else:
             raise NotImplementedError('Supervise noise mode {} unknown (offline version).'.format(noise_mode))

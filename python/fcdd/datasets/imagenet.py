@@ -14,6 +14,7 @@ from fcdd.util.logging import Logger
 from torch.utils.data import Subset
 from torchvision.datasets.imagenet import META_FILE, parse_train_archive, parse_val_archive
 from torchvision.datasets.imagenet import verify_str_arg, load_meta_file, check_integrity, parse_devkit_archive
+from torchvision.transforms.functional import to_tensor, to_pil_image
 
 ROOT = pt.join(pt.dirname(__file__), '..')
 
@@ -103,7 +104,7 @@ class ADImageNet(TorchvisionDataset):
             all_transform = None
 
         train_set = MyImageNet(
-            root=self.root, split='train', normal_classes=self.normal_classes,
+            self.root, supervise_mode, self.raw_shape, split='train', normal_classes=self.normal_classes,
             transform=transform, target_transform=target_transform, all_transform=all_transform, logger=logger
         )
         self.train_ad_classes_idx = train_set.get_class_idx(self.ad_classes)
@@ -114,7 +115,7 @@ class ADImageNet(TorchvisionDataset):
             'unsupervised', noise_mode, oe_limit, train_set, normal_class,  # gets rid of true anomalous samples
         )
         self._test_set = MyImageNet(
-            root=self.root, split='val', normal_classes=self.normal_classes,
+            self.root, supervise_mode, self.raw_shape, split='val', normal_classes=self.normal_classes,
             transform=test_transform, target_transform=target_transform, logger=logger
         )
         self.test_ad_classes_idx = self._test_set.get_class_idx(self.ad_classes)
@@ -176,12 +177,15 @@ class MyImageNet(PathsMetaFileImageNet):
     # order = np.random.choice(list(range(s)), replace=False, size=s)
     fixed_random_order = np.load(pt.join(ROOT, 'datasets', 'confs', 'imagenet30_test_random_order.npy'))
 
-    def __init__(self, root, transform=None, target_transform=None,
+    def __init__(self, root: str, supervise_mode: str, raw_shape: Tuple[int, int, int],
+                 transform=None, target_transform=None,
                  normal_classes=None, all_transform=None, split='train', logger=None):
         super().__init__(root, split, transform=transform, target_transform=target_transform, logger=logger)
         self.normal_classes = normal_classes
         self.all_transform = all_transform
         self.split = split
+        self.supervise_mode = supervise_mode
+        self.raw_shape = raw_shape
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
         target = self.targets[index]
@@ -192,8 +196,15 @@ class MyImageNet(PathsMetaFileImageNet):
         if self.all_transform is not None:
             replace = random.random() < 0.5
             if replace:
-                img, _, target = self.all_transform(None, None, target, replace=replace)
-                img = transforms.ToPILImage()(img)
+                if self.supervise_mode not in ['malformed_normal', 'malformed_normal_gt']:
+                    img, _, target = self.all_transform(
+                        torch.empty(self.raw_shape), None, target, replace=replace
+                    )
+                else:
+                    path, _ = self.samples[index]
+                    img = to_tensor(self.loader(path)).mul(255).byte()
+                    img, _, target = self.all_transform(img, None, target, replace=replace)
+                img = to_pil_image(img)
             else:
                 path, _ = self.samples[index]
                 img = self.loader(path)

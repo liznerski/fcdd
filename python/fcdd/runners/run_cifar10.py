@@ -1,3 +1,4 @@
+import torch
 from fcdd.runners.bases import ClassesRunner
 from fcdd.runners.argparse_configs import DefaultCifar10Config
 
@@ -10,6 +11,7 @@ class Cifar10Config(DefaultCifar10Config):
 
 
 if __name__ == '__main__':
+    torch.set_num_threads(4)
     runner = ClassesRunner(Cifar10Config())
     runner.args.logdir += '_cifar10_'
     runner.run()

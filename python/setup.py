@@ -20,7 +20,7 @@ with open(pt.join(PACKAGE_DIR, 'requirements.txt')) as f:
 
 setup(
     name='fcdd',
-    version='1.0.0',
+    version='1.1.0',
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',

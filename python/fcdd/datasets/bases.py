@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
+from collections import Counter
 
 import numpy as np
 import torch
@@ -67,10 +68,12 @@ class TorchvisionDataset(BaseADDataset):
         assert not shuffle_test, \
             'using shuffled test raises problems with original GT maps for GT datasets, thus disabled atm!'
         # classes = None means all classes
+        # TODO: persistent_workers=True makes training significantly faster,
+        #  but rn this sometimes yields "OSError: [Errno 12] Cannot allocate memory" as there seems to be a memory leak
         train_loader = DataLoader(dataset=self.train_set, batch_size=batch_size, shuffle=shuffle_train,
-                                  num_workers=num_workers, pin_memory=True)
+                                  num_workers=num_workers, pin_memory=False, persistent_workers=False)
         test_loader = DataLoader(dataset=self.test_set, batch_size=batch_size, shuffle=shuffle_test,
-                                 num_workers=num_workers, pin_memory=True,)
+                                 num_workers=num_workers, pin_memory=False, persistent_workers=False)
         return train_loader, test_loader
 
     def preview(self, percls=20, train=True) -> torch.Tensor:
@@ -105,14 +108,14 @@ class TorchvisionDataset(BaseADDataset):
             out.append(x[y == c][:percls])
         if len(gts) > 0:
             assert len(set(gts.reshape(-1).tolist())) <= 2, 'training process assumes zero-one gtmaps'
-            out.append(torch.zeros_like(x[:percls]))
+            out.append(torch.zeros_like(x[y == 0][:percls]))
             for c in sorted(set(y.tolist())):
                 g = gts[y == c][:percls]
                 if x.shape[1] > 1:
                     g = g.repeat(1, x.shape[1], 1, 1)
                 out.append(g)
         self.logprint('Dataset preview generated.')
-        return torch.cat(out)
+        return torch.stack([o[:min(Counter(y.tolist()).values())] for o in out])
 
     def _generate_artificial_anomalies_train_set(self, supervise_mode: str, noise_mode: str, oe_limit: int,
                                                  train_set: Dataset, nom_class: int):

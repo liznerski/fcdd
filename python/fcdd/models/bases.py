@@ -57,7 +57,7 @@ class ReceptiveModule(torch.nn.Module, ABC):
             return self.__upsample_nn(pixels)
         else:
             assert pixels.dim() == 4 and pixels.size(1) == 1, 'receptive upsample works atm only for one channel'
-            pixels = pixels.squeeze()
+            pixels = pixels.squeeze(1)
             if self.reception is None:
                 raise ValueError('receptive field is unknown!')
             ishape = self.reception['img_shape']

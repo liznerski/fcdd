@@ -119,8 +119,9 @@ def trainer_setup(
         ds_order = ['norm', 'anom']
     else:
         ds_order = ['anom', 'norm']
+    images = ds.preview(20)
     logger.imsave(
-        'ds_preview', ds.preview(20), nrow=20,
+        'ds_preview', torch.cat([*images]), nrow=images.size(1),
         rowheaders=ds_order if not isinstance(ds.train_set, GTMapADDataset)
         else [*ds_order, '', *['gtno' if s == 'norm' else 'gtan' for s in ds_order]]
     )
