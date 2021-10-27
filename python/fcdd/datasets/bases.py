@@ -68,10 +68,12 @@ class TorchvisionDataset(BaseADDataset):
         assert not shuffle_test, \
             'using shuffled test raises problems with original GT maps for GT datasets, thus disabled atm!'
         # classes = None means all classes
+        # TODO: persistent_workers=True makes training significantly faster,
+        #  but rn this sometimes yields "OSError: [Errno 12] Cannot allocate memory" as there seems to be a memory leak
         train_loader = DataLoader(dataset=self.train_set, batch_size=batch_size, shuffle=shuffle_train,
-                                  num_workers=num_workers, pin_memory=False, persistent_workers=True)
+                                  num_workers=num_workers, pin_memory=False, persistent_workers=False)
         test_loader = DataLoader(dataset=self.test_set, batch_size=batch_size, shuffle=shuffle_test,
-                                 num_workers=num_workers, pin_memory=False, persistent_workers=True)
+                                 num_workers=num_workers, pin_memory=False, persistent_workers=False)
         return train_loader, test_loader
 
     def preview(self, percls=20, train=True) -> torch.Tensor:
