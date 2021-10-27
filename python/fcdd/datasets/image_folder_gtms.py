@@ -10,7 +10,7 @@ from torch import Tensor
 from torch.nn.functional import interpolate
 from torchvision.transforms.functional import to_tensor, to_pil_image
 from fcdd.datasets.bases import GTMapADDataset, GTSubset
-from fcdd.datasets.preprocessing import get_target_label_idx, MultiCompose
+from fcdd.datasets.preprocessing import get_target_label_idx, MultiCompose, AWGN
 from fcdd.datasets.image_folder import ADImageFolderDataset, ImageFolderDataset
 from fcdd.util.logging import Logger
 
@@ -119,7 +119,7 @@ class ADImageFolderDatasetGTM(ADImageFolderDataset):
                 transforms.ToPILImage(),
                 transforms.ColorJitter(brightness=0.01, contrast=0.01, saturation=0.01, hue=0.01),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 transforms.Normalize(self.mean, self.std)
             ])
         #  here you could define other pipelines with augmentations

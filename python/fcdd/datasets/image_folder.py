@@ -11,7 +11,7 @@ from torchvision.datasets import ImageFolder
 from torchvision.transforms.functional import to_tensor, to_pil_image
 from fcdd.datasets.bases import TorchvisionDataset, GTSubset
 from fcdd.datasets.online_supervisor import OnlineSupervisor
-from fcdd.datasets.preprocessing import get_target_label_idx
+from fcdd.datasets.preprocessing import get_target_label_idx, TargetTransFunctor, AWGN
 from fcdd.util.logging import Logger
 
 
@@ -109,7 +109,7 @@ class ADImageFolderDataset(TorchvisionDataset):
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomCrop(self.shape[-1]),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x + 0.001 * torch.randn_like(x)),
+                transforms.Lambda(AWGN(0.001)),
                 transforms.Normalize(self.mean, self.std)
             ])
         #  here you could define other pipelines with augmentations
@@ -117,7 +117,7 @@ class ADImageFolderDataset(TorchvisionDataset):
             raise ValueError('Preprocessing pipeline {} is not known.'.format(preproc))
 
         self.target_transform = transforms.Lambda(
-            lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
+            TargetTransFunctor(self.anomalous_label, self.outlier_classes, self.nominal_label)
         )
         if supervise_mode not in ['unsupervised', 'other']:
             self.all_transform = OnlineSupervisor(self, supervise_mode, noise_mode, oe_limit)
@@ -176,7 +176,7 @@ class ADImageFolderDataset(TorchvisionDataset):
         ds = ImageFolderDataset(
             path, 'unsupervised', self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
             normal_classes=[cls], transform=transform, target_transform=transforms.Lambda(
-                lambda x: self.anomalous_label if x in self.outlier_classes else self.nominal_label
+                TargetTransFunctor(self.anomalous_label, self.outlier_classes, self.nominal_label)
             )
         )
         ds = Subset(
