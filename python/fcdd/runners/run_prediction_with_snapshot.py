@@ -77,6 +77,7 @@ ds = ImageFolder(images_path, transform, transforms.Lambda(lambda x: 0))
 loader = DataLoader(ds, batch_size=16, num_workers=0)
 trainer = FCDDTrainer(net, None, None, (None, None), logger, 'fcdd', 8, quantile, 224)
 trainer.load(snapshot)
+trainer.net.eval()
 all_anomaly_scores, all_inputs, all_labels = [], [], []
 for inputs, labels in loader:
     inputs = inputs.cuda()
