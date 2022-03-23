@@ -29,7 +29,7 @@ class ADImageFolderDataset(TorchvisionDataset):
 
     def __init__(self, root: str, normal_class: int, preproc: str, nominal_label: int,
                  supervise_mode: str, noise_mode: str, oe_limit: int, online_supervision: bool,
-                 logger: Logger = None):
+                 logger: Logger = None, enlarge: bool = False):
         """
         This is a general-purpose implementation for custom datasets.
         It expects the data being contained in class folders and distinguishes between
@@ -71,6 +71,8 @@ class ADImageFolderDataset(TorchvisionDataset):
         :param online_supervision: whether to sample anomalies online in each epoch,
             or offline before training (same for all epochs in this case).
         :param logger: logger.
+        :param enlarge: Set enlarge=True to enlarge dataset by repeating all data samples ten times
+            (speeds up data loading).
         """
         assert online_supervision, 'Artificial anomaly generation for custom datasets needs to be online'
         self.trainpath = pt.join(root, self.base_folder, 'train')
@@ -128,6 +130,7 @@ class ADImageFolderDataset(TorchvisionDataset):
             self.trainpath, supervise_mode, self.raw_shape, self.ovr, self.nominal_label, self.anomalous_label,
             normal_classes=self.normal_classes,
             transform=transform, target_transform=self.target_transform, all_transform=self.all_transform,
+            enlarge= enlarge
         )
         if supervise_mode == 'other':  # (semi)-supervised setting
             self.balance_dataset()
@@ -196,7 +199,7 @@ class ADImageFolderDataset(TorchvisionDataset):
 class ImageFolderDataset(ImageFolder):
     def __init__(self, root: str, supervise_mode: str, raw_shape: Tuple[int, int, int], ovr: bool,
                  nominal_label: int, anomalous_label: int,
-                 transform=None, target_transform=None, normal_classes=None, all_transform=None, ):
+                 transform=None, target_transform=None, normal_classes=None, all_transform=None, enlarge=False):
         super().__init__(root, transform=transform, target_transform=target_transform)
         if ovr:
             self.anomaly_labels = [self.target_transform(t) for t in self.targets]
@@ -209,6 +212,12 @@ class ImageFolderDataset(ImageFolder):
         self.all_transform = all_transform  # contains the OnlineSupervisor
         self.supervise_mode = supervise_mode
         self.raw_shape = torch.Size(raw_shape)
+
+        if enlarge:
+            # enlarge the sampled data to speed up training
+            self.samples = self.samples*10, 
+            self.anomaly_labels = self.anomaly_labels*10
+            self.targets = self.targets*10
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         target = self.anomaly_labels[index]

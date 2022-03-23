@@ -55,7 +55,7 @@ def trainer_setup(
         objective: str, preproc: str, supervise_mode: str, nominal_label: int,
         online_supervision: bool, oe_limit: int, noise_mode: str,
         workers: int, quantile: float, resdown: int, gauss_std: float, blur_heatmaps: bool,
-        cuda: bool, config: str, log_start_time: int = None, normal_class: int = 0,
+        cuda: bool, config: str, log_start_time: int = None, normal_class: int = 0, enlarge: bool = False
 ) -> dict:
     """
     Creates a complete setup for training, given all necessary parameter from a runner (seefcdd.runners.bases.py).
@@ -94,6 +94,7 @@ def trainer_setup(
     :param config: some config text that is to be stored in the config.txt file.
     :param log_start_time: the start time of the experiment.
     :param normal_class: the class that is to be considered nominal.
+    :param enlarge: enables enlargement of dataset to speed up training
     :return: a dictionary containing all necessary parameters to be passed to a Trainer instance.
     """
     assert objective in OBJECTIVES, 'unknown objective: {}'.format(objective)
@@ -103,7 +104,7 @@ def trainer_setup(
     logger = Logger(pt.abspath(pt.join(logdir, '')), exp_start_time=log_start_time)
     ds = load_dataset(
         dataset, pt.abspath(pt.join(datadir, '')), normal_class, preproc, supervise_mode,
-        noise_mode, online_supervision, nominal_label, oe_limit, logger=logger
+        noise_mode, online_supervision, nominal_label, oe_limit, logger=logger, enlarge=enlarge
     )
     loaders = ds.loaders(batch_size=batch_size, num_workers=workers)
     net = load_nets(net, ds.shape, bias=bias)

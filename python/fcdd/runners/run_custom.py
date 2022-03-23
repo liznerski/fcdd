@@ -33,7 +33,11 @@ class CustomConfig(DefaultConfig):
                  'where 255 marks anomalous regions. '
                  'For more details see :class:`fcdd.datasets.image_folder_gtms.ADImageFolderDatasetGTM`.'
         )
-        parser.set_defaults(one_vs_rest=False, ground_truth_maps=False)
+        parser.add_argument(
+            '--enlarge', '-enl', action='store_true',
+            help='Enables enlargement of dataset to speed up training'
+        )        
+        parser.set_defaults(one_vs_rest=False, ground_truth_maps=False, enlarge=False)
         return parser
 
 

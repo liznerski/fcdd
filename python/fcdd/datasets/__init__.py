@@ -18,7 +18,7 @@ CUSTOM_CLASSES = []
 
 def load_dataset(dataset_name: str, data_path: str, normal_class: int, preproc: str,
                  supervise_mode: str, noise_mode: str, online_supervision: bool, nominal_label: int,
-                 oe_limit: int, logger=None) -> TorchvisionDataset:
+                 oe_limit: int, logger=None, enlarge: bool = False) -> TorchvisionDataset:
     """ Loads the dataset with given preprocessing pipeline and supervise parameters """
 
     assert dataset_name in DS_CHOICES
@@ -67,7 +67,7 @@ def load_dataset(dataset_name: str, data_path: str, normal_class: int, preproc: 
             dataset = ADImageFolderDataset(
                 root=data_path, normal_class=normal_class, preproc=preproc,
                 supervise_mode=supervise_mode, noise_mode=noise_mode, online_supervision=online_supervision,
-                oe_limit=oe_limit, logger=logger, nominal_label=nominal_label
+                oe_limit=oe_limit, logger=logger, nominal_label=nominal_label, enlarge=enlarge
             )
     else:
         raise NotImplementedError(f'Dataset {dataset_name} is unknown.')
