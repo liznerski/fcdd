@@ -18,7 +18,7 @@ from torchvision.datasets.imagenet import check_integrity, verify_str_arg
 
 class MvTec(VisionDataset, GTMapADDataset):
     """ Implemention of a torch style MVTec dataset """
-    url = "ftp://guest:GU%2E205dldo@ftp.softronics.ch/mvtec_anomaly_detection/mvtec_anomaly_detection.tar.xz"
+    url = "https://www.mydrive.ch/shares/38536/3830184030e49fe74747669442f0f282/download/420938113-1629952094/mvtec_anomaly_detection.tar.xz"
     base_folder = 'mvtec'
     labels = (
         'bottle', 'cable', 'capsule', 'carpet', 'grid', 'hazelnut', 'leather',
