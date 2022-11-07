@@ -119,7 +119,7 @@ def trainer_setup(
         ds_order = ['norm', 'anom']
     else:
         ds_order = ['anom', 'norm']
-    images = ds.preview(20)
+    images = ds.preview(20, classes=[0, 1] if supervise_mode != "unsupervised" else [0], train=True)
     logger.imsave(
         'ds_preview', torch.cat([*images]), nrow=images.size(1),
         rowheaders=ds_order if not isinstance(ds.train_set, GTMapADDataset)

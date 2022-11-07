@@ -76,7 +76,7 @@ class TorchvisionDataset(BaseADDataset):
                                  num_workers=num_workers, pin_memory=False, persistent_workers=False)
         return train_loader, test_loader
 
-    def preview(self, percls=20, train=True) -> torch.Tensor:
+    def preview(self, percls=20, train=True, classes=(0, 1)) -> torch.Tensor:
         """
         Generates a preview of the dataset, i.e. it generates an image of some randomly chosen outputs
         of the dataloader, including ground-truth maps if available.
@@ -85,6 +85,7 @@ class TorchvisionDataset(BaseADDataset):
         to have an early look at the artificial anomalies.
         :param percls: how many samples are shown per class, i.e. for anomalies and nominal samples each
         :param train: whether to show training samples or test samples
+        :param classes: the class labels for which images are collected. Defaults to (0, 1) for normal and anomalous.
         :return: a Tensor of images (n x c x h x w)
         """
         self.logprint('Generating dataset preview...')
@@ -97,12 +98,12 @@ class TorchvisionDataset(BaseADDataset):
         if isinstance(self.train_set, GTMapADDataset):
             for xb, yb, gtsb in loader:
                 x, y, gts = torch.cat([x, xb]), torch.cat([y, yb]), torch.cat([gts, gtsb])
-                if all([x[y == c].size(0) >= percls for c in [0, 1]]):
+                if all([x[y == c].size(0) >= percls for c in classes]):
                     break
         else:
             for xb, yb in loader:
                 x, y = torch.cat([x, xb]), torch.cat([y, yb])
-                if all([x[y == c].size(0) >= percls for c in [0, 1]]):
+                if all([x[y == c].size(0) >= percls for c in classes]):
                     break
         for c in sorted(set(y.tolist())):
             out.append(x[y == c][:percls])
