@@ -60,10 +60,10 @@ class ADImageFolderDataset(TorchvisionDataset):
         The same holds for the test set, where "train" has to be replaced by "test".
 
         :param root: root directory where data is found.
-        :param normal_class: the class considered nominal.
+        :param normal_class: the class considered normal.
         :param preproc: the kind of preprocessing pipeline.
-        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
-            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param nominal_label: the label that marks normal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the normal label is 0, s.t. the scores are anomaly scores.
         :param supervise_mode: the type of generated artificial anomalies.
             See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
         :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
@@ -76,6 +76,7 @@ class ADImageFolderDataset(TorchvisionDataset):
         self.trainpath = pt.join(root, self.base_folder, 'train')
         self.testpath = pt.join(root, self.base_folder, 'test')
         super().__init__(root, logger=logger)
+        self.check_data()
 
         self.n_classes = 2  # 0: normal, 1: outlier
         self.raw_shape = (3, 248, 248)
@@ -191,6 +192,47 @@ class ADImageFolderDataset(TorchvisionDataset):
             all_x.append(x)
         all_x = torch.cat(all_x)
         return all_x.permute(1, 0, 2, 3).flatten(1).mean(1), all_x.permute(1, 0, 2, 3).flatten(1).std(1)
+
+    def check_data(self):
+        # custom data check
+        if not pt.exists(self.trainpath):
+            raise ValueError(f'No custom data found since {self.trainpath} does not exist.')
+        if not pt.exists(self.testpath):
+            raise ValueError(f'No custom data found since {self.testpath} does not exist.')
+        if self.ovr:
+            if any([cls_dir.lower() in ('normal', 'nominal', 'anomalous') for cls_dir in os.listdir(self.trainpath)]):
+                raise ValueError(
+                    f'Found a class folder being named "normal", "nominal", or "anomalous" in ({self.trainpath}). '
+                    f'Note that the class folders needs to match the class names (like "dog", "hazelnut"). '
+                    f'Deactivate the one-vs-rest evaluation mode or change the class folders to class names.'
+                )
+        else:
+            if any([cls_dir.lower() in ('normal', 'nominal', 'anomalous') for cls_dir in os.listdir(self.trainpath)]):
+                raise ValueError(
+                    f'Found a class folder being named "normal", "nominal", or "anomalous" in ({self.trainpath}). '
+                    f'Note that the class folders needs to match the class names (like "dog", "hazelnut"). '
+                    f'Normal samples need to be placed in CLASS_NAME/normal and anomalous samples in CLASS_NAME/anomalous. '
+                )
+            for split_dir in (self.trainpath, self.testpath):
+                for cls_dir in os.listdir(split_dir):
+                    if 'normal' not in [d.lower() for d in os.listdir(pt.join(split_dir, cls_dir))]:
+                        raise ValueError(
+                            f'All class folders need to contain a folder named "normal" for normal samples. '
+                            f'However, did not find such a folder in {pt.join(split_dir, cls_dir)}.'
+                        )
+                    for lbl_dir in os.listdir(pt.join(split_dir, cls_dir)):
+                        if lbl_dir.lower() not in ('normal', 'nominal', 'anomalous'):
+                            raise ValueError(
+                                f'All class folders need to contain folders for "normal" and "anomalous" data. '
+                                f'However, found a folder named {lbl_dir} in {pt.join(split_dir, cls_dir)}.'
+                            )
+        train_classes = os.listdir(self.trainpath)
+        test_classes = os.listdir(self.testpath)
+        if train_classes != test_classes:
+            raise ValueError(
+                f'The training class names and test class names do no match. '
+                f'The training class names are {train_classes} and the test class names {test_classes}.'
+            )
 
 
 class ImageFolderDataset(ImageFolder):

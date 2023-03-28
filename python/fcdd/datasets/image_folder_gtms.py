@@ -9,6 +9,7 @@ from typing import Tuple, List
 from torch import Tensor
 from torch.nn.functional import interpolate
 from torchvision.transforms.functional import to_tensor, to_pil_image
+from torchvision.datasets.folder import IMG_EXTENSIONS, has_file_allowed_extension
 from fcdd.datasets.bases import GTMapADDataset, GTSubset
 from fcdd.datasets.preprocessing import get_target_label_idx, MultiCompose
 from fcdd.datasets.image_folder import ADImageFolderDataset, ImageFolderDataset
@@ -70,10 +71,10 @@ class ADImageFolderDatasetGTM(ADImageFolderDataset):
 
 
         :param root: root directory where data is found.
-        :param normal_class: the class considered nominal.
-        :param preproc: the kind of preprocessing pipeline.
-        :param nominal_label: the label that marks nominal samples in training. The scores in the heatmaps always
-            rate label 1, thus usually the nominal label is 0, s.t. the scores are anomaly scores.
+        :param normal_class: the class considered normal.
+        :param preproc: the kind of preprocessing pipeline.s
+        :param nominal_label: the label that marks normal samples in training. The scores in the heatmaps always
+            rate label 1, thus usually the normal label is 0, s.t. the scores are anomaly scores.
         :param supervise_mode: the type of generated artificial anomalies.
             See :meth:`fcdd.datasets.bases.TorchvisionDataset._generate_artificial_anomalies_train_set`.
         :param noise_mode: the type of noise used, see :mod:`fcdd.datasets.noise_mode`.
@@ -85,6 +86,7 @@ class ADImageFolderDatasetGTM(ADImageFolderDataset):
         super().__init__(
             root, normal_class, preproc, nominal_label, supervise_mode, noise_mode, oe_limit, online_supervision, logger
         )
+        self.check_gtm_data()  # you may remove this line to speed up dataset loading
 
         # img_gtm transforms transform images and corresponding ground-truth maps jointly.
         # This is critically required for random geometric transformations as otherwise
@@ -153,6 +155,31 @@ class ADImageFolderDatasetGTM(ADImageFolderDataset):
                 self._test_set, get_target_label_idx(self._test_set.targets, np.asarray(self.normal_classes))
             )
 
+    def check_gtm_data(self):
+        if self.gtm:
+            def is_valid_file(x: str) -> bool:
+                return has_file_allowed_extension(x, IMG_EXTENSIONS)  # type: ignore[arg-type]
+            for split_dir in (self.trainpath, self.testpath):
+                gtm_split_dir = f"{split_dir}_maps"
+                if pt.exists(gtm_split_dir):
+                    for cls_dir in os.listdir(gtm_split_dir):
+                        if cls_dir not in os.listdir(split_dir):
+                            raise ValueError(f'Class {cls_dir} found in {gtm_split_dir} but not in {split_dir}!')
+                        for lbl_dir in os.listdir(pt.join(gtm_split_dir, cls_dir)) if not self.ovr else ('.', ):
+                            if not self.ovr and lbl_dir.lower() not in ('normal', 'anomalous', 'nominal'):
+                                raise ValueError(
+                                    f'All class folders need to contain folders for "normal" and "anomalous" data. '
+                                    f'However, found a folder named {lbl_dir} in {pt.join(gtm_split_dir, cls_dir)}.'
+                                )
+                            for img in os.listdir(pt.join(gtm_split_dir, cls_dir, lbl_dir)):
+                                if is_valid_file(img):
+                                    if not pt.exists(pt.join(split_dir, cls_dir, lbl_dir, img)):
+                                        raise ValueError(
+                                            f'There is a ground-truth map named {img} in '
+                                            f'{pt.join(gtm_split_dir, cls_dir, lbl_dir)}, but there is no corresponding image '
+                                            f'in {pt.join(split_dir, cls_dir, lbl_dir)} !'
+                                        )
+
 
 class ImageFolderDatasetGTM(ImageFolderDataset, GTMapADDataset):
     def __init__(self, root: str, supervise_mode: str, raw_shape: Tuple[int, int, int], ovr: bool,
@@ -188,7 +215,7 @@ class ImageFolderDatasetGTM(ImageFolderDataset, GTMapADDataset):
                     img = to_tensor(self.loader(path)).mul(255).byte()
                     img, gt, target = self.all_transform(img, None, target, replace=replace)
                 img = to_pil_image(img)
-                gt = gt.mul(255).byte() if gt.dtype != torch.uint8 else gt
+                gt = gt.mul(255).byte() if gt is not None and gt.dtype != torch.uint8 else gt
                 gt = to_pil_image(gt) if gt is not None else None
             else:
                 path, _ = self.samples[index]
@@ -231,16 +258,16 @@ class ImageFolderDatasetGTM(ImageFolderDataset, GTMapADDataset):
         The class is chosen according to the normal class the dataset was created with.
         This method is usually used for pixel-wise ROC computation.
         """
-        assert len(self.normal_classes) == 1, 'normal classes must be known and there must be exactly one'
-        assert self.all_transform is None, 'all_transform would be skipped here'
+        assert len(self.normal_classes) == 1, 'Normal classes must be known and there must be exactly one.'
+        assert self.all_transform is None, 'All_transform would be skipped here.'
         assert all([isinstance(t, (transforms.Resize, transforms.ToTensor)) for t in self.img_gtm_transform.transforms]), \
-            "if other transforms than resize are used, the original-sized ground-truth maps do not match the heatmaps "
+            "If other transforms than resize are used, the original-sized ground-truth maps do not match the heatmaps. "
         orig_gtmaps = [
             to_tensor(self.loader(g)) if g is not None
             else ((torch.ones(self.raw_shape) * self.nominal_label) if t == self.nominal_label else None)
             for g, t in self.gtm_samples
         ]
-        assert all([g is not None for g in orig_gtmaps]), 'for some samples no ground-truth maps were found'
+        assert all([g is not None for g in orig_gtmaps]), 'For some samples no ground-truth maps were found.'
         minsize = min([min(g.shape[-2:]) for g in orig_gtmaps])
         orig_gtmaps = torch.cat([interpolate(g.unsqueeze(0), (minsize, minsize), mode='nearest') for g in orig_gtmaps])[:, :1]
         return orig_gtmaps
