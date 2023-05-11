@@ -150,7 +150,11 @@ class ADImageFolderDatasetGTM(ADImageFolderDataset):
             transform=test_transform, target_transform=self.target_transform,
             img_gtm_transform=img_gtm_test_transform
         )
-        if not self.ovr:
+        if self.ovr:
+            self._test_set = GTSubset(
+                self._test_set, np.arange(len(self.test_set.targets))
+            )
+        else:
             self._test_set = GTSubset(
                 self._test_set, get_target_label_idx(self._test_set.targets, np.asarray(self.normal_classes))
             )
