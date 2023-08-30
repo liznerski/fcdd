@@ -268,8 +268,8 @@ class ImageFolderDatasetGTM(ImageFolderDataset, GTMapADDataset):
             "If other transforms than resize are used, the original-sized ground-truth maps do not match the heatmaps. "
         orig_gtmaps = [
             to_tensor(self.loader(g)) if g is not None
-            else ((torch.ones(self.raw_shape) * self.nominal_label) if t == self.nominal_label else None)
-            for g, t in self.gtm_samples
+            else ((torch.ones(self.raw_shape) * self.nominal_label) if albl == self.nominal_label else None)
+            for (g, albl), t in zip(self.gtm_samples, self.targets) if t == self.normal_classes[0]
         ]
         assert all([g is not None for g in orig_gtmaps]), 'For some samples no ground-truth maps were found.'
         minsize = min([min(g.shape[-2:]) for g in orig_gtmaps])
